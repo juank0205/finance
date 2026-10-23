@@ -1,0 +1,50 @@
+{
+	admin off
+}
+
+(security_headers) {
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy no-referrer
+		Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+		-Server
+	}
+}
+
+# Admin UI for the browser. Login is enforced by admin-api.
+{$EDGE_HOSTNAME} {
+	import security_headers
+	encode zstd gzip
+
+	handle /api/* {
+		request_body {
+			max_size 10MB
+		}
+		reverse_proxy admin-api:8080
+	}
+
+	handle {
+		root * /srv/admin
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+# Phone ingest. Only clients with a certificate signed by our own CA get through.
+{$EDGE_HOSTNAME}:8443 {
+	import security_headers
+
+	tls {
+		client_auth {
+			mode require_and_verify
+			trust_pool file /etc/caddy/client-ca.crt
+		}
+	}
+
+	request_body {
+		max_size 64KB
+	}
+	reverse_proxy ingest-api:8080
+}

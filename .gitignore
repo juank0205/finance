@@ -1,0 +1,41 @@
+# Secrets: never commit
+.env
+*.pem
+*.key
+*.crt
+*.p12
+edge/secrets/*
+!edge/secrets/README.md
+!edge/secrets/.gitkeep
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+
+# Ansible
+infra/ansible/inventory.ini
+
+# Go
+backend/bin/
+
+# Node (each app also has its own .gitignore)
+node_modules/
+dist/
+
+# Android
+android/**/build/
+android/.gradle/
+android/local.properties
+android/**/*.jks
+android/**/*.keystore
+
+# Editors / OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db

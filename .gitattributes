@@ -1,0 +1,6 @@
+# Keep LF everywhere: shell scripts, Dockerfiles and YAML break on the Pi/CI with CRLF.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.ico binary
+*.jar binary

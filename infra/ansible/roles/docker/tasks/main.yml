@@ -1,0 +1,7 @@
+# TODO(phase 1):
+# - add Docker's apt repo + GPG key, install docker-ce, docker-compose-plugin
+# - daemon.json: log rotation, "no-new-privileges": true, "live-restore": true
+# - do NOT add the admin user to the docker group (equivalent to root); use sudo
+- name: Placeholder until phase 1
+  ansible.builtin.debug:
+    msg: "docker role not implemented yet"

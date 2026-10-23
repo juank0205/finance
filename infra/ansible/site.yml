@@ -1,0 +1,13 @@
+# Configures the Raspberry Pi. Ansible does not run natively on Windows: run it from WSL.
+#   ansible-playbook site.yml --ask-become-pass
+#
+# Not automated on purpose: full-disk encryption (LUKS) must be set up when the OS is installed.
+# A step-by-step guide comes with phase 1.
+- name: Raspberry Pi edge node
+  hosts: pi
+  become: true
+  roles:
+    - base       # updates, unattended-upgrades, SSH hardening, firewall
+    - tailscale  # private network for phone + browser access
+    - docker     # Docker Engine + Compose plugin from Docker's apt repo
+    - app        # copy edge/ stack, create secrets folder, docker compose up
