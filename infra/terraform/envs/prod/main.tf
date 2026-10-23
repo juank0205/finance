@@ -9,17 +9,21 @@ provider "aws" {
   }
 }
 
+data "aws_caller_identity" "current" {}
+
 locals {
   name = "finance"
 }
 
 # Uncomment each module as its phase is built.
 
-# module "security_baseline" {   # phase 0
-#   source      = "../../modules/security-baseline"
-#   name        = local.name
-#   alert_email = var.alert_email
-# }
+module "security_baseline" { # phase 0
+  source       = "../../modules/security-baseline"
+  name         = local.name
+  alert_email  = var.alert_email
+  github_repo  = var.github_repo
+  state_bucket = "finance-tfstate-${data.aws_caller_identity.current.account_id}"
+}
 
 # module "data" {                # phase 4
 #   source = "../../modules/data"
@@ -40,3 +44,8 @@ locals {
 #   source = "../../modules/web"
 #   name   = local.name
 # }
+
+output "github_plan_role_arn" {
+  description = "Set as the AWS_PLAN_ROLE_ARN variable in the GitHub repo"
+  value       = module.security_baseline.github_plan_role_arn
+}

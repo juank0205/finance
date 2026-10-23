@@ -4,7 +4,12 @@ variable "region" {
 }
 
 variable "alert_email" {
-  description = "Where budget and security alerts are sent"
+  description = "Where budget and security alerts are sent. Put it in terraform.tfvars (git-ignored)"
   type        = string
-  default     = ""
+}
+
+variable "github_repo" {
+  description = "owner/repo whose CI may run terraform plan"
+  type        = string
+  default     = "juank0205/finance"
 }

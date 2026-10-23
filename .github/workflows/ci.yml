@@ -61,3 +61,27 @@ jobs:
             terraform -chdir=$dir init -backend=false -input=false
             terraform -chdir=$dir validate
           done
+
+  # Read-only plan against the real account. Skipped until the repo variable AWS_PLAN_ROLE_ARN is set.
+  plan:
+    if: vars.AWS_PLAN_ROLE_ARN != ''
+    needs: terraform
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: infra/terraform/envs/prod
+    steps:
+      - uses: actions/checkout@v5
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          aws-region: us-east-1
+      - uses: hashicorp/setup-terraform@v3
+      - run: terraform init -input=false
+      # -lock=false keeps the role read-only: no lock file write in the state bucket.
+      - run: terraform plan -input=false -lock=false
+        env:
+          TF_VAR_alert_email: ${{ vars.ALERT_EMAIL }}
