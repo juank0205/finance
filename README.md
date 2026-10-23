@@ -44,7 +44,7 @@ See [docs/architecture.md](docs/architecture.md), [docs/security.md](docs/securi
 
 ## Roadmap
 
-- [ ] **0** AWS account hardening, Terraform bootstrap (state bucket), `security-baseline` module, GitHub repo + OIDC
+- [ ] **0** AWS account hardening, Terraform bootstrap, `security-baseline` module, CI plan role ([guide](docs/phase-0.md))
 - [ ] **1** Pi: OS with LUKS, Ansible roles (base, tailscale, docker)
 - [ ] **2** Android listener app → `ingest-api` → `parser` → Postgres
 - [ ] **3** Edge admin UI + `admin-api` (login, manual entry, CSV/PDF upload, review queue)
