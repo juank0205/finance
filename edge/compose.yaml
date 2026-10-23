@@ -1,0 +1,122 @@
+# Raspberry Pi stack. Run from this folder: docker compose up -d --build
+# Network layout (only caddy is reachable from outside, only uploader reaches the internet):
+#   public  : caddy                         -> published ports, bound to the Tailscale IP
+#   front   : caddy, ingest-api, admin-api  -> internal, no internet
+#   data    : APIs, parser, uploader, postgres -> internal, no internet
+#   egress  : uploader                      -> AWS IoT Core
+
+name: finance-edge
+
+x-hardening: &hardening
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  tmpfs: [/tmp]
+  restart: unless-stopped
+
+x-db-env: &db-env
+  PGHOST: postgres
+  PGDATABASE: finance
+  PGUSER: finance
+  PG_PASSWORD_FILE: /run/secrets/pg_password
+
+services:
+  caddy:
+    <<: *hardening
+    image: caddy:2-alpine
+    cap_add: [NET_BIND_SERVICE]
+    ports:
+      - "${EDGE_BIND_IP:-127.0.0.1}:443:443"    # admin UI (browser)
+      - "${EDGE_BIND_IP:-127.0.0.1}:8443:8443"  # phone ingest (mTLS)
+    environment:
+      EDGE_HOSTNAME: ${EDGE_HOSTNAME:?set EDGE_HOSTNAME in .env}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ../frontend/edge-admin/dist:/srv/admin:ro
+      - ./secrets/client-ca.crt:/etc/caddy/client-ca.crt:ro
+      - /var/run/tailscale/tailscaled.sock:/var/run/tailscale/tailscaled.sock  # HTTPS certs for *.ts.net
+      - caddy-data:/data
+      - caddy-config:/config
+    networks: [public, front]
+    depends_on: [ingest-api, admin-api]
+
+  ingest-api:
+    <<: *hardening
+    build: { context: ../backend, target: edge, args: { CMD: ingest-api } }
+    image: finance/ingest-api:dev
+    environment:
+      <<: *db-env
+      INGEST_HMAC_KEY_FILE: /run/secrets/ingest_hmac_key
+    secrets: [pg_password, ingest_hmac_key]
+    networks: [front, data]
+    depends_on: { postgres: { condition: service_healthy } }
+
+  admin-api:
+    <<: *hardening
+    build: { context: ../backend, target: edge, args: { CMD: admin-api } }
+    image: finance/admin-api:dev
+    environment:
+      <<: *db-env
+    secrets: [pg_password]
+    networks: [front, data]
+    depends_on: { postgres: { condition: service_healthy } }
+
+  parser:
+    <<: *hardening
+    build: { context: ../backend, target: edge, args: { CMD: parser } }
+    image: finance/parser:dev
+    environment:
+      <<: *db-env
+    secrets: [pg_password]
+    networks: [data]
+    depends_on: { postgres: { condition: service_healthy } }
+
+  uploader:
+    <<: *hardening
+    build: { context: ../backend, target: edge, args: { CMD: uploader } }
+    image: finance/uploader:dev
+    environment:
+      <<: *db-env
+      IOT_ENDPOINT: ${IOT_ENDPOINT:-}
+      IOT_CERT_FILE: /run/secrets/iot_cert
+      IOT_KEY_FILE: /run/secrets/iot_key
+    secrets: [pg_password, iot_cert, iot_key]
+    networks: [data, egress]
+    depends_on: { postgres: { condition: service_healthy } }
+
+  postgres:
+    image: postgres:18-alpine
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: finance
+      POSTGRES_USER: finance
+      POSTGRES_PASSWORD_FILE: /run/secrets/pg_password
+    secrets: [pg_password]
+    volumes:
+      - pg-data:/var/lib/postgresql
+      - ../backend/migrations:/docker-entrypoint-initdb.d:ro
+    networks: [data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U finance -d finance"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  public: {}
+  front: { internal: true }
+  data: { internal: true }
+  egress: {}
+
+volumes:
+  caddy-data:
+  caddy-config:
+  pg-data:
+
+# Files live in ./secrets (git-ignored). See ./secrets/README.md.
+secrets:
+  pg_password: { file: ./secrets/pg_password.txt }
+  ingest_hmac_key: { file: ./secrets/ingest_hmac_key.txt }
+  iot_cert: { file: ./secrets/iot-device.crt }
+  iot_key: { file: ./secrets/iot-device.key }
