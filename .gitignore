@@ -14,6 +14,7 @@ edge/secrets/*
 *.tfstate.*
 *.tfvars
 !*.tfvars.example
+*.tfplan
 crash.log
 
 # Ansible
