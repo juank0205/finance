@@ -1,5 +1,6 @@
-# Phase 0: account-wide guardrails. Everything here is free or close to it, except the KMS key ($1/month),
-# which is the account's single customer-managed key, reused later by the data module.
+# Phase 0: account-wide guardrails. Not deployed yet: the KMS key ($1/month) and GuardDuty (after its
+# 30-day trial) break the $0 goal. TODO before enabling: replace the KMS key with SSE-S3 for the trail
+# bucket and drop SNS encryption at rest, as agreed for the free-tier setup.
 
 data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}

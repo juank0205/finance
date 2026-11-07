@@ -29,17 +29,6 @@ provider "aws" {
 
 data "aws_caller_identity" "current" {}
 
-resource "aws_kms_key" "tfstate" {
-  description             = "Encrypts Terraform state"
-  enable_key_rotation     = true
-  deletion_window_in_days = 30
-}
-
-resource "aws_kms_alias" "tfstate" {
-  name          = "alias/finance-tfstate"
-  target_key_id = aws_kms_key.tfstate.key_id
-}
-
 resource "aws_s3_bucket" "tfstate" {
   bucket = "finance-tfstate-${data.aws_caller_identity.current.account_id}"
 
@@ -55,14 +44,14 @@ resource "aws_s3_bucket_versioning" "tfstate" {
   }
 }
 
+# SSE-S3: encrypted at rest with S3-managed keys, free. A customer-managed KMS key ($1/month) would
+# add a separate decrypt permission; access is controlled by IAM and the bucket policy instead.
 resource "aws_s3_bucket_server_side_encryption_configuration" "tfstate" {
   bucket = aws_s3_bucket.tfstate.id
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm     = "aws:kms"
-      kms_master_key_id = aws_kms_key.tfstate.arn
+      sse_algorithm = "AES256"
     }
-    bucket_key_enabled = true
   }
 }
 

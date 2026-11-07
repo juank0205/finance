@@ -9,7 +9,8 @@ provider "aws" {
   }
 }
 
-# Global pieces that only live in us-east-1: root sign-in events now, CloudFront certificates later.
+# Global pieces that only live in us-east-1: root sign-in events (security baseline), CloudFront
+# certificates for a custom domain later.
 provider "aws" {
   alias  = "us_east_1"
   region = "us-east-1"
@@ -22,25 +23,41 @@ provider "aws" {
   }
 }
 
-data "aws_caller_identity" "current" {}
-
 locals {
   name = "finance"
 }
 
-# Uncomment each module as its phase is built.
+# Uncomment each module as its phase is built. Everything enabled here stays inside the free tier.
 
-module "security_baseline" { # phase 0
-  source       = "../../modules/security-baseline"
-  name         = local.name
-  alert_email  = var.alert_email
-  github_repo  = var.github_repo
-  state_bucket = "finance-tfstate-${data.aws_caller_identity.current.account_id}"
-  providers = {
-    aws           = aws
-    aws.us_east_1 = aws.us_east_1
-  }
+module "budget" {
+  source      = "../../modules/budget"
+  name        = local.name
+  alert_email = var.alert_email
 }
+
+module "github" {
+  source      = "../../modules/github"
+  name        = local.name
+  github_repo = var.github_repo
+}
+
+module "web" {
+  source                   = "../../modules/web"
+  name                     = local.name
+  github_repo              = var.github_repo
+  github_oidc_provider_arn = module.github.oidc_provider_arn
+}
+
+# Deferred: costs ~$1-3/month as written (KMS key, GuardDuty). See the TODO in the module.
+# module "security_baseline" {
+#   source      = "../../modules/security-baseline"
+#   name        = local.name
+#   alert_email = var.alert_email
+#   providers = {
+#     aws           = aws
+#     aws.us_east_1 = aws.us_east_1
+#   }
+# }
 
 # module "data" {                # phase 4
 #   source = "../../modules/data"
@@ -62,7 +79,16 @@ module "security_baseline" { # phase 0
 #   name   = local.name
 # }
 
-output "github_plan_role_arn" {
-  description = "Set as the AWS_PLAN_ROLE_ARN variable in the GitHub repo"
-  value       = module.security_baseline.github_plan_role_arn
+output "dashboard_url" {
+  value = module.web.url
+}
+
+# The four values to set as GitHub repository variables (none of them is a secret).
+output "github_variables" {
+  value = {
+    AWS_PLAN_ROLE_ARN   = module.github.plan_role_arn
+    AWS_DEPLOY_ROLE_ARN = module.web.deploy_role_arn
+    WEB_BUCKET          = module.web.bucket
+    WEB_DISTRIBUTION_ID = module.web.distribution_id
+  }
 }

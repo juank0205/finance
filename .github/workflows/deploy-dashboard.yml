@@ -1,0 +1,63 @@
+name: deploy-dashboard
+
+# Builds the dashboard and publishes it to S3 + CloudFront on every push to main that changes it.
+# AWS access is a short-lived OIDC session for a role that can only write to the dashboard bucket
+# and invalidate its distribution (infra/terraform/modules/web). No AWS keys are stored in GitHub.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - frontend/cloud-dashboard/**
+      - .github/workflows/deploy-dashboard.yml
+  workflow_dispatch: # "Run workflow" button, e.g. after changing the infrastructure
+
+permissions:
+  contents: read
+
+# One deploy at a time; a newer push waits instead of racing the running one.
+concurrency:
+  group: deploy-dashboard
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # Skipped until the repository variables from `terraform output github_variables` are set.
+    if: vars.AWS_DEPLOY_ROLE_ARN != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # lets the job request the OIDC token AWS trusts
+    defaults:
+      run:
+        working-directory: frontend/cloud-dashboard
+    env:
+      BUCKET: ${{ vars.WEB_BUCKET }}
+      DISTRIBUTION_ID: ${{ vars.WEB_DISTRIBUTION_ID }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/cloud-dashboard/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      # VITE_API_URL is not set, so the build runs on demo data until cloud-api exists.
+      - run: npm run build
+
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: eu-west-3
+
+      # Hashed assets first, cached for a year (a new build gets new file names). Then index.html with
+      # no-cache, so browsers always fetch the latest one and it points at assets that already exist.
+      - name: Upload assets
+        run: aws s3 sync dist/assets "s3://$BUCKET/assets" --cache-control "public, max-age=31536000, immutable"
+      - name: Upload index.html and static files
+        run: aws s3 sync dist "s3://$BUCKET" --exclude "assets/*" --cache-control "no-cache" --delete
+      - name: Remove assets from older builds
+        run: aws s3 sync dist/assets "s3://$BUCKET/assets" --delete --size-only
+      - name: Refresh CloudFront
+        run: aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION_ID" --paths "/" "/index.html" --query Invalidation.Id --output text
