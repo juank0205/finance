@@ -15,7 +15,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
     go build -trimpath -ldflags="-s -w" -o /out/app ./cmd/${CMD}
 
-FROM public.ecr.aws/awsguru/aws-lambda-adapter:0.9.1 AS adapter
+FROM public.ecr.aws/awsguru/aws-lambda-adapter:1.1.0 AS adapter
 
 # Lambda: plain HTTP server + Lambda Web Adapter extension, so the same binary runs locally and in AWS.
 FROM gcr.io/distroless/static-debian12:nonroot AS lambda
