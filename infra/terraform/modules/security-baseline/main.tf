@@ -1,6 +1,6 @@
-# Phase 0: account-wide guardrails. Not deployed yet: the KMS key ($1/month) and GuardDuty (after its
-# 30-day trial) break the $0 goal. TODO before enabling: replace the KMS key with SSE-S3 for the trail
-# bucket and drop SNS encryption at rest, as agreed for the free-tier setup.
+# Phase 0: account-wide guardrails, built to fit the free tier. Encryption at rest uses S3-managed keys
+# (no $1/month KMS key) and GuardDuty is opt-in (it bills after a 30-day trial). The only non-zero
+# item is CloudTrail writing log files to S3: a few thousand requests a month, about $0.10.
 
 data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
@@ -11,15 +11,17 @@ locals {
   region     = data.aws_region.current.region
   partition  = data.aws_partition.current.partition
   trail_name = "${var.name}-trail"
-  # Built by hand so the KMS key policy can reference the trail without a dependency cycle.
+  # Built by hand so the bucket policy can reference the trail without a dependency cycle.
   trail_arn = "arn:${local.partition}:cloudtrail:${local.region}:${local.account_id}:trail/${local.trail_name}"
 
   forward_global_events = local.region != "us-east-1"
   home_bus_arn          = "arn:${local.partition}:events:${local.region}:${local.account_id}:event-bus/default"
 }
 
-# --- Account-level hardening -------------------------------------------------------------------
+# --- Account-level hardening (all free) ---------------------------------------------------------
 
+# No bucket in the account can ever be made public. CloudFront's access to the dashboard bucket is
+# not "public" (it is limited to one distribution), so it is unaffected.
 resource "aws_s3_account_public_access_block" "this" {
   block_public_acls       = true
   block_public_policy     = true
@@ -31,11 +33,13 @@ resource "aws_ebs_encryption_by_default" "this" {
   enabled = true
 }
 
+# Flags any resource policy that grants access to someone outside this account.
 resource "aws_accessanalyzer_analyzer" "account" {
   analyzer_name = "${var.name}-account"
   type          = "ACCOUNT"
 }
 
+# Humans sign in through Identity Center, so IAM users shouldn't exist; if one ever does, it gets this.
 resource "aws_iam_account_password_policy" "strict" {
   minimum_password_length        = 16
   require_lowercase_characters   = true
@@ -44,81 +48,4 @@ resource "aws_iam_account_password_policy" "strict" {
   require_symbols                = true
   allow_users_to_change_password = true
   password_reuse_prevention      = 24
-}
-
-# --- Customer-managed KMS key -------------------------------------------------------------------
-
-data "aws_iam_policy_document" "main_key" {
-  statement {
-    sid       = "AccountAdministration"
-    actions   = ["kms:*"]
-    resources = ["*"]
-    principals {
-      type        = "AWS"
-      identifiers = ["arn:${local.partition}:iam::${local.account_id}:root"]
-    }
-  }
-
-  statement {
-    sid       = "CloudTrailEncryptLogs"
-    actions   = ["kms:GenerateDataKey*"]
-    resources = ["*"]
-    principals {
-      type        = "Service"
-      identifiers = ["cloudtrail.amazonaws.com"]
-    }
-    condition {
-      test     = "StringEquals"
-      variable = "aws:SourceArn"
-      values   = [local.trail_arn]
-    }
-    condition {
-      test     = "StringLike"
-      variable = "kms:EncryptionContext:aws:cloudtrail:arn"
-      values   = ["arn:${local.partition}:cloudtrail:*:${local.account_id}:trail/*"]
-    }
-  }
-
-  statement {
-    sid       = "CloudTrailDescribeKey"
-    actions   = ["kms:DescribeKey"]
-    resources = ["*"]
-    principals {
-      type        = "Service"
-      identifiers = ["cloudtrail.amazonaws.com"]
-    }
-    condition {
-      test     = "StringEquals"
-      variable = "aws:SourceArn"
-      values   = [local.trail_arn]
-    }
-  }
-
-  # EventBridge must encrypt messages it publishes to the KMS-encrypted alerts topic.
-  statement {
-    sid       = "EventBridgePublishAlerts"
-    actions   = ["kms:GenerateDataKey*", "kms:Decrypt"]
-    resources = ["*"]
-    principals {
-      type        = "Service"
-      identifiers = ["events.amazonaws.com"]
-    }
-    condition {
-      test     = "StringEquals"
-      variable = "aws:SourceAccount"
-      values   = [local.account_id]
-    }
-  }
-}
-
-resource "aws_kms_key" "main" {
-  description             = "${var.name}: encrypts logs, alerts and application data"
-  enable_key_rotation     = true
-  deletion_window_in_days = 30
-  policy                  = data.aws_iam_policy_document.main_key.json
-}
-
-resource "aws_kms_alias" "main" {
-  name          = "alias/${var.name}-main"
-  target_key_id = aws_kms_key.main.key_id
 }

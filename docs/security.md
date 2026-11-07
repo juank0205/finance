@@ -31,7 +31,8 @@ Security is the top priority. Every phase must keep every box below that applies
 - [ ] GitHub Actions pinned to commit SHAs; base images pinned by digest
 
 ## Detection and cost
-- [ ] CloudTrail with log file validation; GuardDuty; IAM Access Analyzer
+- [ ] CloudTrail with log file validation; IAM Access Analyzer; GuardDuty (opt-in, it is not free)
+- [ ] Email alerts: root activity; IAM users/access keys created; CloudTrail stopped or changed
 - [ ] AWS Budgets alarms ($5, $10) + Cost Anomaly Detection (cost spikes often mean compromise)
 - [ ] API Gateway throttling + Lambda reserved concurrency as a hard cost ceiling
 - [ ] Phone heartbeat: alert when no events arrive for N days

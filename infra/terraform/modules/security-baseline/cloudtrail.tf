@@ -1,8 +1,16 @@
-# Audit log of every API call in every region. The first management-events trail is free;
-# only S3 storage (cents) is billed.
+# Audit log of every management API call in every region, kept for var.log_retention_days. The first
+# management-events trail is free; S3 bills the log writes and storage (about $0.10/month here).
+# Without a trail, CloudTrail's event history still keeps 90 days, but with no tamper check.
 
 resource "aws_s3_bucket" "trail" {
   bucket = "${var.name}-cloudtrail-${local.account_id}"
+}
+
+resource "aws_s3_bucket_ownership_controls" "trail" {
+  bucket = aws_s3_bucket.trail.id
+  rule {
+    object_ownership = "BucketOwnerEnforced"
+  }
 }
 
 resource "aws_s3_bucket_versioning" "trail" {
@@ -12,14 +20,13 @@ resource "aws_s3_bucket_versioning" "trail" {
   }
 }
 
+# SSE-S3 (free). Log file validation below is what makes tampering detectable.
 resource "aws_s3_bucket_server_side_encryption_configuration" "trail" {
   bucket = aws_s3_bucket.trail.id
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm     = "aws:kms"
-      kms_master_key_id = aws_kms_key.main.arn
+      sse_algorithm = "AES256"
     }
-    bucket_key_enabled = true
   }
 }
 
@@ -103,8 +110,9 @@ data "aws_iam_policy_document" "trail_bucket" {
 }
 
 resource "aws_s3_bucket_policy" "trail" {
-  bucket = aws_s3_bucket.trail.id
-  policy = data.aws_iam_policy_document.trail_bucket.json
+  bucket     = aws_s3_bucket.trail.id
+  policy     = data.aws_iam_policy_document.trail_bucket.json
+  depends_on = [aws_s3_bucket_public_access_block.trail]
 }
 
 resource "aws_cloudtrail" "main" {
@@ -112,8 +120,8 @@ resource "aws_cloudtrail" "main" {
   s3_bucket_name                = aws_s3_bucket.trail.id
   is_multi_region_trail         = true
   include_global_service_events = true
-  enable_log_file_validation    = true
-  kms_key_id                    = aws_kms_key.main.arn
+  # Hourly signed digest files: proves later whether any log file was changed or deleted.
+  enable_log_file_validation = true
 
   depends_on = [aws_s3_bucket_policy.trail]
 }

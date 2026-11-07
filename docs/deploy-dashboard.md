@@ -50,7 +50,7 @@ Back up `infra/terraform/bootstrap/terraform.tfstate` somewhere private (it is g
 ```powershell
 cd infra/terraform/envs/prod
 terraform init
-terraform plan     # read it. Expect: Plan: 16 to add, 0 to change, 0 to destroy
+terraform plan     # read it. Expect: Plan: 41 to add, 0 to change, 0 to destroy (16 web/CI + 25 security baseline)
 terraform apply    # CloudFront takes about 5 minutes
 terraform output
 cd ../../..
@@ -63,6 +63,10 @@ What it creates:
 | `budget` | Monthly budget, emails above $1 actual or forecast | $0 |
 | `github` | GitHub OIDC provider, read-only `finance-github-plan` role for CI | $0 |
 | `web` | Private bucket (versioned, old versions expire after 30 days), CloudFront with Origin Access Control and security headers, `finance-github-deploy-web` role | ~$0 |
+
+It also creates the security baseline (CloudTrail and email alerts, see
+[phase-0.md](phase-0.md#5-free-tier-stack-and-dashboard-cd)). Confirm the SNS subscription email it
+sends, or the alerts are never delivered.
 
 The deploy role can only list and write that bucket and invalidate that distribution, and only from
 workflows running on `main`.
