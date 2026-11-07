@@ -8,25 +8,51 @@ Steps marked **(manual)** cannot be automated or must not be. Do them in order.
 winget install GoLang.Go Hashicorp.Terraform Amazon.AWSCLI
 ```
 
-## 2. Account (manual)
+## 2. Organization and account (manual)
 
-1. Create the AWS account at <https://aws.amazon.com>. Use an email only for this, with its own strong password.
-2. Root user: **Security credentials → Assign MFA** (passkey or authenticator app). Never create root access keys.
-3. **Billing → Billing preferences**: enable *Receive Free Tier usage alerts*.
-4. Choose region **us-east-1** (top right) and keep it everywhere.
-5. **IAM Identity Center → Enable** (organization instance). Then:
+The project lives in its own member account inside an AWS Organization. The personal (management)
+account only handles billing and identity, and never runs project workloads.
+
+```
+Management account (billing + IAM Identity Center)
+└── Root
+    └── OU: finance
+        └── Account: finance-prod   ← everything in this repo
+```
+
+1. Management account: root has MFA. **Organizations → Create organization** (all features).
+2. **Root → Actions → Create OU** `finance`.
+3. **Add an AWS account → Create**: name `finance-prod`, a unique email (Gmail `+` aliases work), keep
+   the `OrganizationAccountAccessRole` (break-glass access from the management account). Move it into
+   the `finance` OU.
+4. **IAM → Root access management → Enable**, then delete the root credentials of `finance-prod`. The
+   member account then has no root password or keys at all.
+5. **IAM Identity Center → Enable** (organization instance, home region **us-east-1**). Then:
    - *Users → Add user* (yourself), require MFA at sign-in (*Settings → Authentication → MFA: every sign-in*).
    - *Permission sets → Create → Predefined → AdministratorAccess*, session duration 4h.
-   - *AWS accounts →* select the account *→ Assign users* → you + AdministratorAccess.
-6. Sign out of root. From now on use only the Identity Center portal / CLI.
+   - *AWS accounts →* `finance-prod` *→ Assign users* → you + AdministratorAccess.
+6. **Billing → Billing preferences**: enable *Receive Free Tier usage alerts*.
+
+Project resources live in **eu-west-3** (Paris). A few global pieces (root sign-in events, CloudFront
+certificates) have to live in us-east-1; Terraform handles those through a second provider.
 
 ## 3. CLI login (manual)
 
+The portal URL is in **IAM Identity Center → Dashboard → AWS access portal URL**. The SSO region is
+where Identity Center lives (us-east-1), which is not the region of the resources (eu-west-3).
+
 ```powershell
-aws configure sso          # session name: finance, region us-east-1, profile name: finance
-aws sso login --profile finance
-$env:AWS_PROFILE = "finance"
-aws sts get-caller-identity   # must show an AWSReservedSSO_AdministratorAccess role, not root
+aws configure sso
+# SSO session name: admin
+# SSO start URL: https://d-xxxxxxxxxx.awsapps.com/start
+# SSO region: us-east-1
+# pick finance-prod + AdministratorAccess
+# Default client Region: eu-west-3
+# Profile name: admin-finance-prod
+
+aws sso login --sso-session admin
+$env:AWS_PROFILE = "admin-finance-prod"
+aws sts get-caller-identity   # must show finance-prod and an AWSReservedSSO_AdministratorAccess role
 ```
 
 ## 4. Terraform state bucket (once)

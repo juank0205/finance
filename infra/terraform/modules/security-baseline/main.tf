@@ -12,6 +12,9 @@ locals {
   trail_name = "${var.name}-trail"
   # Built by hand so the KMS key policy can reference the trail without a dependency cycle.
   trail_arn = "arn:${local.partition}:cloudtrail:${local.region}:${local.account_id}:trail/${local.trail_name}"
+
+  forward_global_events = local.region != "us-east-1"
+  home_bus_arn          = "arn:${local.partition}:events:${local.region}:${local.account_id}:event-bus/default"
 }
 
 # --- Account-level hardening -------------------------------------------------------------------
