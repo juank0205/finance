@@ -72,6 +72,15 @@ state bucket, so losing it is an inconvenience, not a disaster.
 Continue with [deploy-dashboard.md](deploy-dashboard.md): budget alert, GitHub OIDC roles and the
 dashboard on S3 + CloudFront, all inside the free tier.
 
-The `security-baseline` module (CloudTrail, GuardDuty, root sign-in alert, account hardening) is
-written but not deployed: as it stands it costs about $1-3/month (a customer-managed KMS key and
-GuardDuty after its trial). It will be reworked to fit the free tier before it is enabled.
+The same apply also creates the `security-baseline` module:
+
+| Control | Cost |
+|---|---|
+| CloudTrail: all regions, management events, log file validation, logs kept 365 days | ~$0.10/month (S3 writes) |
+| Email on any root activity (sign-in or API call) | $0 |
+| Email on IAM users/access keys created, CloudTrail stopped/changed, leaving the organization | $0 |
+| IAM Access Analyzer, account-wide S3 Block Public Access, EBS default encryption, password policy | $0 |
+| GuardDuty (opt-in: `enable_guardduty = true` in the module block) | free 30 days, then ~$1-4/month |
+
+**(manual)** After the apply, confirm the email "AWS Notification - Subscription Confirmation", or
+the security alerts are never delivered.

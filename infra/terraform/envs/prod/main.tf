@@ -9,8 +9,8 @@ provider "aws" {
   }
 }
 
-# Global pieces that only live in us-east-1: root sign-in events (security baseline), CloudFront
-# certificates for a custom domain later.
+# Global pieces that only live in us-east-1: IAM and root sign-in events (security baseline), and
+# CloudFront certificates for a custom domain later.
 provider "aws" {
   alias  = "us_east_1"
   region = "us-east-1"
@@ -48,16 +48,17 @@ module "web" {
   github_oidc_provider_arn = module.github.oidc_provider_arn
 }
 
-# Deferred: costs ~$1-3/month as written (KMS key, GuardDuty). See the TODO in the module.
-# module "security_baseline" {
-#   source      = "../../modules/security-baseline"
-#   name        = local.name
-#   alert_email = var.alert_email
-#   providers = {
-#     aws           = aws
-#     aws.us_east_1 = aws.us_east_1
-#   }
-# }
+# CloudTrail, root-activity and sensitive-change alerts, account hardening. ~$0.10/month (CloudTrail's
+# S3 writes); GuardDuty stays off unless enable_guardduty = true.
+module "security_baseline" {
+  source      = "../../modules/security-baseline"
+  name        = local.name
+  alert_email = var.alert_email
+  providers = {
+    aws           = aws
+    aws.us_east_1 = aws.us_east_1
+  }
+}
 
 # module "data" {                # phase 4
 #   source = "../../modules/data"

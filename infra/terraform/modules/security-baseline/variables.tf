@@ -4,8 +4,14 @@ variable "name" {
 }
 
 variable "alert_email" {
-  description = "Receives cost-anomaly, GuardDuty and root-login alerts (SNS asks you to confirm by email once)"
+  description = "Receives security alerts (SNS asks you to confirm by email once) and cost anomalies"
   type        = string
+}
+
+variable "enable_guardduty" {
+  description = "Threat detection. Free for 30 days, then billed by analysed events (roughly $1-4/month here)"
+  type        = bool
+  default     = false
 }
 
 variable "create_cost_anomaly_monitor" {
