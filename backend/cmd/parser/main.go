@@ -15,7 +15,8 @@ func main() {
 	defer stop()
 
 	slog.Info("parser started")
-	// TODO(phase 2): poll pending raw_events, parse Wallet text, dedup, categorize, write transactions.
+	// TODO(phase 2): poll pending raw_events, parse Wallet text, dedup, write transactions. Categories
+	// are assigned in the cloud, where they are configured.
 	<-ctx.Done()
 	slog.Info("parser stopped")
 }

@@ -1,5 +1,9 @@
 # Architecture
 
+The Pi automates ingestion and nothing else. Everything a person does, from viewing to manual entries,
+categories, net worth and fixing failed parses, happens in the cloud dashboard. See
+[ADR 0002](adr/0002-cloud-owns-user-data.md).
+
 ## Data flow
 
 1. **Phone.** A Google Wallet payment posts a notification. The Android app's `NotificationListenerService`
@@ -7,23 +11,29 @@
    client certificate.
 2. **Pi, ingest.** Caddy verifies the client cert (port 8443) and forwards to `ingest-api`, which
    checks the HMAC and stores the payload untouched in `raw_events`.
-3. **Pi, parse.** `parser` (no network access) turns pending raw events into `transactions`: amount in
-   minor units, currency, merchant, card last 4, category, and a `dedup_key`. Failures go to the
-   review queue in the admin UI.
-4. **Pi, admin.** The browser reaches the admin UI on port 443 over the tailnet. Manual entries and
-   statement uploads are parsed by the same `parser`.
-5. **Pi to AWS.** `uploader` publishes transactions where `synced_at IS NULL` to IoT Core (MQTT, mTLS
-   with the device X.509 cert) and marks them synced on ack.
-6. **AWS, ingest.** An IoT rule sends messages to SQS. `cloud-ingest` (Lambda) upserts by `dedup_key`
-   into DynamoDB, updates monthly aggregates and archives raw JSON to S3. Poison messages land in a
-   dead-letter queue.
-7. **AWS, dashboard.** CloudFront serves the React build from a private S3 bucket. The API goes through
-   API Gateway (Cognito JWT authorizer, throttling) to `cloud-api` (Lambda).
+3. **Pi, parse.** `parser` (no network access) turns pending raw events into `transactions`: kind,
+   amount in minor units, currency, merchant, card last 4 and a `dedup_key`. It does not categorize.
+   Events it cannot parse are marked `failed`.
+4. **Pi to AWS.** `uploader` publishes unsynced transactions, and failed raw events, to IoT Core (MQTT,
+   mTLS with the device X.509 cert) and marks them synced on ack.
+5. **AWS, ingest.** An IoT rule sends messages to SQS. `cloud-ingest` (Lambda) assigns a category from
+   the user's rules, upserts by `dedup_key` into DynamoDB, updates monthly aggregates and archives raw
+   JSON to S3. Failed raw events become review items. Poison messages land in a dead-letter queue.
+6. **AWS, dashboard.** CloudFront serves the React build from a private S3 bucket. The API goes through
+   API Gateway (Cognito JWT authorizer, throttling) to `cloud-api` (Lambda): reading summaries and
+   transactions, manual entries (`POST`/`PUT`/`DELETE /v1/transactions`), recurring rules
+   (`/v1/recurring`), categories and net worth.
+7. **AWS, recurring.** A daily EventBridge Scheduler run (free tier) creates the occurrences of
+   recurring rules (mortgage, phone bill, salary) that are due, as normal transactions with source
+   `recurring`. The dedup key `recurring:<rule>:<date>` makes reruns harmless, and deleted occurrences
+   are remembered as skipped. Rules are for direct debits and transfers; card payments already arrive
+   from the phone.
 
-The Pi's Postgres is the local source of truth and offline buffer. AWS holds the synced copy for the
-dashboard and analytics (Athena over S3).
+**Source of truth:** DynamoDB in AWS. The Pi's Postgres is an outbox and raw-event archive: it buffers
+while AWS is unreachable and keeps the original notification text so a fixed parser can re-run. Data
+only flows Pi → AWS, never back, so there are no sync conflicts.
 
-## Why these AWS services (cheapest secure tier, about $2–5/month)
+## Why these AWS services (cheapest secure tier, aiming for $0 inside the free tier)
 
 | Need | Choice | Instead of |
 |---|---|---|
@@ -32,12 +42,13 @@ dashboard and analytics (Athena over S3).
 | Network | No VPC; IAM-authenticated TLS to AWS APIs | VPC + NAT Gateway |
 | Secrets | SSM Parameter Store SecureString | Secrets Manager |
 | Edge connectivity | IoT Core (per-device X.509) | Long-lived IAM keys on the Pi |
+| Encryption at rest | AWS-owned/AWS-managed keys | Customer-managed KMS keys ($1/month each) |
 
 ## Edge networks (edge/compose.yaml)
 
 | Network | Members | Internet |
 |---|---|---|
-| `public` | caddy | published ports, bound to the Tailscale IP only |
-| `front` | caddy, ingest-api, admin-api | no |
-| `data` | APIs, parser, uploader, postgres | no |
+| `public` | caddy | published port 8443 only, bound to the Tailscale IP |
+| `front` | caddy, ingest-api | no |
+| `data` | ingest-api, parser, uploader, postgres | no |
 | `egress` | uploader | yes (IoT Core) |

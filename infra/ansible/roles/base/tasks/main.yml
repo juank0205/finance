@@ -1,7 +1,7 @@
 # TODO(phase 1):
 # - apt full upgrade; install unattended-upgrades (security updates + automatic reboot window)
 # - sshd: key-only auth, no root login, no password auth, AllowUsers <admin user>
-# - ufw: default deny incoming; allow SSH and 443/8443 only on tailscale0
+# - ufw: default deny incoming; allow SSH and 8443 only on tailscale0
 # - disable unused services (bluetooth, avahi), set timezone + NTP
 - name: Placeholder until phase 1
   ansible.builtin.debug:

@@ -13,8 +13,9 @@ import (
 func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", httpx.Health)
-	// TODO(phase 4): validate each record, upsert into DynamoDB by dedup_key, update monthly
-	// aggregates, archive raw JSON to S3. Non-2xx makes SQS retry, then dead-letter.
+	// TODO(phase 4): validate each record, assign a category from the user's rules, upsert into
+	// DynamoDB by dedup_key, update monthly aggregates, archive raw JSON to S3. Events the Pi could
+	// not parse become review items in the dashboard. Non-2xx makes SQS retry, then dead-letter.
 	mux.HandleFunc("POST /events", httpx.NotImplemented)
 
 	if err := httpx.Run(httpx.Addr(), mux); err != nil {
