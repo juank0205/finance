@@ -67,43 +67,11 @@ terraform output state_bucket    # e.g. finance-tfstate-123456789012
 Back up `bootstrap/terraform.tfstate` somewhere private (it is git-ignored). It only describes the
 state bucket, so losing it is an inconvenience, not a disaster.
 
-## 5. Security baseline
+## 5. Free-tier stack and dashboard CD
 
-1. In `infra/terraform/envs/prod/versions.tf` replace `ACCOUNT_ID` with your 12-digit account ID.
-2. Copy `terraform.tfvars.example` to `terraform.tfvars` and set your alert email.
-3. Check **Billing → Cost Anomaly Detection**. If there is no monitor yet, add
-   `create_cost_anomaly_monitor = true` to the module block; if a default one exists, just add your
-   email to its alert subscription in the console.
-4. Apply:
+Continue with [deploy-dashboard.md](deploy-dashboard.md): budget alert, GitHub OIDC roles and the
+dashboard on S3 + CloudFront, all inside the free tier.
 
-```powershell
-cd infra/terraform/envs/prod
-terraform init
-terraform plan      # read it: everything should be "create", nothing destroyed
-terraform apply
-```
-
-5. **(manual)** Confirm the SNS subscription email ("AWS Notification - Subscription Confirmation").
-
-## 6. CI plan role
-
-GitHub repo → *Settings → Secrets and variables → Actions → Variables*:
-
-| Variable | Value |
-|---|---|
-| `AWS_PLAN_ROLE_ARN` | `terraform output github_plan_role_arn` |
-| `ALERT_EMAIL` | your alert email |
-
-The next push runs `terraform plan` in CI with short-lived, read-only credentials.
-
-## Result
-
-| Control | Cost |
-|---|---|
-| CloudTrail (all regions, log validation, KMS) | ~$0 (first trail free; S3 cents) |
-| GuardDuty → email for medium+ findings | ~$0–2 (30-day free trial) |
-| Root sign-in → email | $0 |
-| Budget alarms at $5, $10 (actual) and $10 (forecast) | $0 |
-| IAM Access Analyzer, S3 account Block Public Access, EBS default encryption, password policy | $0 |
-| Customer-managed KMS key (reused by later phases) | $1 |
-| GitHub OIDC read-only plan role | $0 |
+The `security-baseline` module (CloudTrail, GuardDuty, root sign-in alert, account hardening) is
+written but not deployed: as it stands it costs about $1-3/month (a customer-managed KMS key and
+GuardDuty after its trial). It will be reworked to fit the free tier before it is enabled.

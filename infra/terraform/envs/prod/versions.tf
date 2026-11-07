@@ -13,7 +13,6 @@ terraform {
     key          = "prod/terraform.tfstate"
     region       = "eu-west-3"
     encrypt      = true
-    kms_key_id   = "alias/finance-tfstate"
     use_lockfile = true
   }
 }
