@@ -35,7 +35,7 @@ jobs:
       BUCKET: ${{ vars.WEB_BUCKET }}
       DISTRIBUTION_ID: ${{ vars.WEB_DISTRIBUTION_ID }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v5
         with:
           node-version: 22
