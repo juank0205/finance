@@ -9,7 +9,7 @@ terraform {
 
   # Replace ACCOUNT_ID with the value of `terraform -chdir=../../bootstrap output state_bucket`.
   backend "s3" {
-    bucket       = "finance-tfstate-ACCOUNT_ID"
+    bucket       = "finance-tfstate-192592197380"
     key          = "prod/terraform.tfstate"
     region       = "eu-west-3"
     encrypt      = true
