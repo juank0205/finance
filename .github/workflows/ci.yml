@@ -31,7 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        app: [edge-admin, cloud-dashboard]
+        app: [cloud-dashboard]
     defaults:
       run:
         working-directory: frontend/${{ matrix.app }}

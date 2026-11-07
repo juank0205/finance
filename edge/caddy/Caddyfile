@@ -13,25 +13,7 @@
 	}
 }
 
-# Admin UI for the browser. Login is enforced by admin-api.
-{$EDGE_HOSTNAME} {
-	import security_headers
-	encode zstd gzip
-
-	handle /api/* {
-		request_body {
-			max_size 10MB
-		}
-		reverse_proxy admin-api:8080
-	}
-
-	handle {
-		root * /srv/admin
-		try_files {path} /index.html
-		file_server
-	}
-}
-
+# The Pi serves no UI; the dashboard lives in AWS. This is its only listener.
 # Phone ingest. Only clients with a certificate signed by our own CA get through.
 {$EDGE_HOSTNAME}:8443 {
 	import security_headers

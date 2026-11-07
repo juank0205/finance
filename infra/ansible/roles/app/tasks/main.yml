@@ -1,5 +1,5 @@
 # TODO(phase 2-3):
-# - sync edge/, backend/ and the edge-admin build to /opt/finance
+# - sync edge/ and backend/migrations to /opt/finance (images are pulled, never built on the Pi)
 # - create /opt/finance/edge/secrets with mode 0700; secrets are copied by hand, never from git
 # - render .env, run `docker compose up -d --build`
 - name: Placeholder until phase 2

@@ -13,7 +13,7 @@
 | Backend | Go, stdlib `net/http` only | Small static binaries for the Pi and fast Lambda cold starts; zero framework deps = small supply-chain surface |
 | Edge DB | PostgreSQL 18 container | Real SQL for admin queries; industry skill |
 | Edge runtime | Docker Compose | Simple to start; k3s or Greengrass possible later |
-| UIs | React + Vite + TypeScript (edge admin and cloud dashboard) | One frontend stack; static builds |
+| UIs | React + Vite + TypeScript (cloud dashboard; the edge admin UI was dropped in ADR 0002) | One frontend stack; static builds |
 | AWS | Serverless only: Lambda, HTTP API GW, DynamoDB, S3, CloudFront, Cognito, IoT Core, SQS | Cheapest tier, about $2–5/month |
 | Lambda packaging | Container images + Lambda Web Adapter | Same `net/http` binary runs locally, on the Pi and in Lambda |
 | IaC | Terraform (AWS), Ansible (Pi) | Most common in industry |

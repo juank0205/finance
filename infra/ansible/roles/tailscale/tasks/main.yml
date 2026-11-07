@@ -1,7 +1,7 @@
 # TODO(phase 1):
 # - install tailscale from its apt repo, `tailscale up` with an auth key (passed via --extra-vars, never committed)
 # - enable MagicDNS + HTTPS certificates in the tailnet admin console
-# - tailnet ACL: only your phone and laptop may reach the Pi on 443/8443
+# - tailnet ACL: only your phone may reach the Pi on 8443; only your laptop on SSH
 - name: Placeholder until phase 1
   ansible.builtin.debug:
     msg: "tailscale role not implemented yet"
