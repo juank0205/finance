@@ -54,7 +54,7 @@ jobs:
         working-directory: infra/terraform
     steps:
       - uses: actions/checkout@v7
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
       - run: terraform fmt -check -recursive
       - run: |
           for dir in bootstrap envs/prod; do
@@ -79,7 +79,7 @@ jobs:
         with:
           role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
           aws-region: eu-west-3
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
       - run: terraform init -input=false
       # -lock=false keeps the role read-only: no lock file write in the state bucket.
       - run: terraform plan -input=false -lock=false
