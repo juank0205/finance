@@ -36,7 +36,7 @@ jobs:
       DISTRIBUTION_ID: ${{ vars.WEB_DISTRIBUTION_ID }}
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
