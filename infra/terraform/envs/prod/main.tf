@@ -9,6 +9,19 @@ provider "aws" {
   }
 }
 
+# Global pieces that only live in us-east-1: root sign-in events now, CloudFront certificates later.
+provider "aws" {
+  alias  = "us_east_1"
+  region = "us-east-1"
+  default_tags {
+    tags = {
+      Project   = "finance"
+      ManagedBy = "terraform"
+      Env       = "prod"
+    }
+  }
+}
+
 data "aws_caller_identity" "current" {}
 
 locals {
@@ -23,6 +36,10 @@ module "security_baseline" { # phase 0
   alert_email  = var.alert_email
   github_repo  = var.github_repo
   state_bucket = "finance-tfstate-${data.aws_caller_identity.current.account_id}"
+  providers = {
+    aws           = aws
+    aws.us_east_1 = aws.us_east_1
+  }
 }
 
 # module "data" {                # phase 4

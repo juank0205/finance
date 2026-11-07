@@ -98,6 +98,59 @@ resource "aws_cloudwatch_event_rule" "root_login" {
   })
 }
 
+# Root console sign-ins may be recorded in us-east-1 whatever the home region, so forward them to the
+# home region's default bus, where the rule above sends them to SNS.
+resource "aws_cloudwatch_event_rule" "root_login_forward" {
+  count         = local.forward_global_events ? 1 : 0
+  provider      = aws.us_east_1
+  name          = "${var.name}-root-login-forward"
+  description   = "Forwards root sign-ins recorded in us-east-1 to ${local.region}"
+  event_pattern = aws_cloudwatch_event_rule.root_login.event_pattern
+}
+
+resource "aws_cloudwatch_event_target" "root_login_forward" {
+  count    = local.forward_global_events ? 1 : 0
+  provider = aws.us_east_1
+  rule     = aws_cloudwatch_event_rule.root_login_forward[0].name
+  arn      = local.home_bus_arn
+  role_arn = aws_iam_role.events_forward[0].arn
+}
+
+data "aws_iam_policy_document" "events_forward_trust" {
+  statement {
+    actions = ["sts:AssumeRole"]
+    principals {
+      type        = "Service"
+      identifiers = ["events.amazonaws.com"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [local.account_id]
+    }
+  }
+}
+
+data "aws_iam_policy_document" "events_forward" {
+  statement {
+    actions   = ["events:PutEvents"]
+    resources = [local.home_bus_arn]
+  }
+}
+
+resource "aws_iam_role" "events_forward" {
+  count              = local.forward_global_events ? 1 : 0
+  name               = "${var.name}-events-forward"
+  assume_role_policy = data.aws_iam_policy_document.events_forward_trust.json
+}
+
+resource "aws_iam_role_policy" "events_forward" {
+  count  = local.forward_global_events ? 1 : 0
+  name   = "put-home-bus"
+  role   = aws_iam_role.events_forward[0].id
+  policy = data.aws_iam_policy_document.events_forward.json
+}
+
 resource "aws_cloudwatch_event_target" "alerts" {
   for_each = {
     guardduty  = aws_cloudwatch_event_rule.guardduty.name
