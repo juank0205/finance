@@ -32,16 +32,10 @@ export function dateLabel(iso: string): string {
   return new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short' }).format(new Date(iso))
 }
 
-const minorDigits = new Map<string, number>()
-
-// ISO 4217 minor units (EUR 2, JPY 0) as Intl knows them.
-function digits(currency: string): number {
-  let d = minorDigits.get(currency)
-  if (d === undefined) {
-    d = new Intl.NumberFormat('en', { style: 'currency', currency }).resolvedOptions().maximumFractionDigits ?? 2
-    minorDigits.set(currency, d)
-  }
-  return d
+// cloud-api stores every currency with 2 decimals (even JPY), so minor units are always hundredths.
+// Callers still say which currency an amount is in, should that ever differ per currency.
+function digits(_currency: string): number {
+  return 2
 }
 
 export function formatMoney(

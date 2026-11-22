@@ -5,20 +5,34 @@ export type Source = 'google_wallet' | 'manual' | 'statement' | 'recurring'
 
 /**
  * expense: money spent. income: money in. investment: money moved from cash into investments; it
- * leaves the cash balance but is not spending, so it is never counted in "spent".
+ * leaves the cash balance but is not spending, so it is never counted in "spent". Each has its own
+ * categories.
  */
-export type TransactionKind = 'expense' | 'income' | 'investment'
+export type CategoryKind = 'expense' | 'income' | 'investment'
+
+/** transfer: money moved between two of your own accounts. Neither spending nor income; no category. */
+export type TransactionKind = CategoryKind | 'transfer'
 
 export interface Transaction {
   id: string
   kind: TransactionKind
   occurred_at: string // RFC 3339
   amount_minor: number // integer minor units (cents); negative = money out of cash
-  currency: string // ISO 4217
+  currency: string // ISO 4217; every currency is stored with 2 decimals
   merchant: string // who was paid, or where the money came from
-  category?: string // Category.id; unknown or missing ids count as the kind's catch-all
+  category?: string // Category.id; unknown or missing ids count as the kind's catch-all. None on transfers.
   note?: string
   card_last4?: string
+  /** An expense that brought money back (a refund, a friend paying their share): amount_minor is positive. */
+  refund?: boolean
+  account?: string // Account.id the money left or entered; none = no balance changes
+  account_minor?: number // amount_minor in the account's currency (signed)
+  /** amount_minor in the summary currency at the day's rate (signed). Missing on old entries in that currency. */
+  base_minor?: number
+  // Transfers only: the receiving account and what it received, positive, in its currency. A
+  // transfer's amount_minor is negative: what left `account`.
+  to_account?: string
+  to_minor?: number
   source: Source
   dedup_key: string
 }
@@ -27,11 +41,15 @@ export interface Transaction {
 export interface TransactionInput {
   kind: TransactionKind
   amount_minor: number // always positive
-  currency: string
+  currency: string // any ISO code, converted by the server; a transfer's is its source account's
   occurred_at: string // RFC 3339; never in the future
   merchant: string // 1-80 characters
-  category: string // Category.id of the same kind
+  category: string // Category.id of the same kind; "" for transfers
   note?: string // up to 500 characters
+  account?: string // Account.id; required for transfers
+  refund?: boolean // expenses only: money back
+  to_account?: string // transfers only
+  to_amount_minor?: number // transfers only: what to_account received; 0 or missing = converted at the day's rate
 }
 
 export type RepeatUnit = 'week' | 'month' | 'year'
@@ -42,7 +60,7 @@ export type RepeatUnit = 'week' | 'month' | 'year'
  * job never duplicates. Editing a rule only affects occurrences not created yet.
  */
 export interface RecurringInput {
-  kind: TransactionKind
+  kind: CategoryKind // rules cannot be transfers
   amount_minor: number // always positive
   currency: string
   merchant: string
@@ -61,7 +79,7 @@ export interface Recurring extends RecurringInput {
 /** A user-configurable category. Each kind has its own list and its own undeletable catch-all. */
 export interface Category {
   id: string // stable: renaming a category keeps its transactions
-  kind: TransactionKind
+  kind: CategoryKind
   name: string
   color: number // categorical palette slot, 1-8, unique within its kind. Follows the category, never its rank.
 }
@@ -91,13 +109,30 @@ export interface Summary {
   months: MonthTotal[] // the 12 months ending at `month`, oldest first
 }
 
+export type AccountKind = 'cash' | 'credit'
+
+/**
+ * A place money sits. Its balance is the opening balance plus every entry tied to it from the
+ * opening day on. GET and PUT /v1/accounts; a PUT replaces the whole list, at most 12.
+ */
+export interface Account {
+  id: string // ^[a-z0-9][a-z0-9-]{0,39}$, stable
+  name: string // 1-30 characters, unique ignoring case
+  kind: AccountKind // credit: a card; its balance is negative while you owe
+  currency: string // fixed once the account exists
+  opening_minor: number // balance at the start of opening_date, signed
+  opening_date: string // YYYY-MM-DD
+}
+
 export type HoldingKind = 'cash' | 'investment' | 'property' | 'liability'
 
 export interface Holding {
   id: string
   name: string
-  kind: HoldingKind
-  balance_minor: number // liabilities are negative
+  kind: HoldingKind // an account is cash, a credit card a liability
+  currency: string
+  balance_minor: number // in `currency`; liabilities are negative
+  base_minor: number // in NetWorth.currency at today's rate
 }
 
 export interface NetWorth {
@@ -119,4 +154,6 @@ export interface Api {
   netWorth(signal?: AbortSignal): Promise<NetWorth>
   categories(signal?: AbortSignal): Promise<Category[]>
   saveCategories(categories: Category[]): Promise<Category[]>
+  accounts(signal?: AbortSignal): Promise<Account[]>
+  saveAccounts(accounts: Account[]): Promise<Account[]> // replaces the list; a currency cannot change
 }

@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import type { Transaction, TransactionInput } from '../api/types.ts'
+import type { Account, Transaction, TransactionInput } from '../api/types.ts'
 import { kindOf, type CategoryIndex } from '../categories.ts'
 import { amountInput } from '../format.ts'
 import { dayToInstant, toDay } from '../recurrence.ts'
-import { checkEntry, useEntry } from '../entry.ts'
+import { checkTransaction, useEntry } from '../entry.ts'
 import { EntryFields } from './EntryFields.tsx'
 
 interface Props {
   categories: CategoryIndex
+  accounts: Account[]
+  /** The summary currency: used when no account is picked. */
   currency: string
   today: Date
   /** Set to edit a manual or recurring entry; unset to add a new one. */
@@ -17,29 +19,40 @@ interface Props {
   onClose: () => void
 }
 
-export function TransactionForm({ categories, currency, today, editing, onSubmit, onDelete, onClose }: Props) {
+export function TransactionForm({ categories, accounts, currency, today, editing, onSubmit, onDelete, onClose }: Props) {
   const dialog = useRef<HTMLDialogElement>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
-  const cur = editing?.currency ?? currency
   const kind = editing ? kindOf(editing) : 'expense'
   const initialDate = editing ? toDay(new Date(editing.occurred_at)) : toDay(today)
   const [date, setDate] = useState(initialDate)
+  // An account deleted since can't be saved again; the entry starts without one.
+  const known = (id?: string) => accounts.find((a) => a.id === id)
+  const toAccount = known(editing?.to_account)
   const entry = useEntry(
     editing
       ? {
           kind,
           amount: amountInput(editing.amount_minor, editing.currency),
+          currency: editing.currency,
           merchant: editing.merchant,
-          category: categories.get(editing.category, kind).id,
+          category: kind === 'transfer' ? '' : categories.get(editing.category, kind).id,
           note: editing.note ?? '',
+          account: known(editing.account)?.id ?? '',
+          refund: !!editing.refund,
+          toAccount: toAccount?.id ?? '',
+          toAmount: toAccount && editing.to_minor ? amountInput(editing.to_minor, toAccount.currency) : '',
         }
       : {},
     categories,
     () => setError(null),
+    { accounts, currency },
   )
   const fromRule = editing?.source === 'recurring'
+  const v = entry.values
+  // The summary currency, every account's, and whatever this entry already uses.
+  const currencies = [...new Set([currency, ...accounts.map((a) => a.currency), v.currency])]
 
   useEffect(() => {
     dialog.current?.showModal()
@@ -47,7 +60,7 @@ export function TransactionForm({ categories, currency, today, editing, onSubmit
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
-    const checked = checkEntry(entry.values, cur)
+    const checked = checkTransaction(v, accounts)
     if ('error' in checked) return setError(checked.error)
     if (!date || date > toDay(today)) return setError('Pick a date that is not in the future.')
 
@@ -56,7 +69,6 @@ export function TransactionForm({ categories, currency, today, editing, onSubmit
     try {
       await onSubmit({
         ...checked,
-        currency: cur,
         // Unchanged date: keep the original time so the entry doesn't move within its day.
         occurred_at: editing && date === initialDate ? editing.occurred_at : dayToInstant(date),
       })
@@ -92,7 +104,7 @@ export function TransactionForm({ categories, currency, today, editing, onSubmit
         <EntryFields
           entry={entry}
           categories={categories}
-          currency={cur}
+          accounts={{ list: accounts, currencies }}
           dateField={
             <label>
               <span>Date</span>

@@ -19,15 +19,18 @@ categories, net worth and fixing failed parses, happens in the cloud dashboard. 
 5. **AWS, ingest.** An IoT rule sends messages to SQS. `cloud-ingest` (Lambda) assigns a category from
    the user's rules, upserts by `dedup_key` into DynamoDB, updates monthly aggregates and archives raw
    JSON to S3. Failed raw events become review items. Poison messages land in a dead-letter queue.
-6. **AWS, dashboard.** CloudFront serves the React build from a private S3 bucket. The API goes through
-   API Gateway (Cognito JWT authorizer, throttling) to `cloud-api` (Lambda): reading summaries and
-   transactions, manual entries (`POST`/`PUT`/`DELETE /v1/transactions`), recurring rules
+6. **AWS, dashboard.** CloudFront serves the React build from a private S3 bucket. The browser signs
+   in with Cognito (hosted page, PKCE) and calls `cloud-api` (Lambda) through its Function URL;
+   `cloud-api` checks the Cognito access token on every request. Until AWS enables CloudFront for the
+   account, the dashboard runs locally against the same API ([deploy-api.md](deploy-api.md)). The API
+   covers reading summaries and transactions, manual entries (`POST`/`PUT`/`DELETE /v1/transactions`), recurring rules
    (`/v1/recurring`), categories and net worth.
-7. **AWS, recurring.** A daily EventBridge Scheduler run (free tier) creates the occurrences of
-   recurring rules (mortgage, phone bill, salary) that are due, as normal transactions with source
-   `recurring`. The dedup key `recurring:<rule>:<date>` makes reruns harmless, and deleted occurrences
-   are remembered as skipped. Rules are for direct debits and transfers; card payments already arrive
-   from the phone.
+7. **AWS, recurring.** `cloud-api` creates the occurrences of recurring rules (mortgage, phone bill,
+   salary) that are due, as normal transactions with source `recurring`, on the first request of each
+   day, so no scheduled job is needed. Each rule remembers the last day it covered and only creates
+   later days: editing a rule changes only the future, and a deleted occurrence never comes back. The
+   dedup key `recurring:<rule>:<date>` makes a repeated run harmless. Rules are for direct debits and
+   transfers; card payments already arrive from the phone.
 
 **Source of truth:** DynamoDB in AWS. The Pi's Postgres is an outbox and raw-event archive: it buffers
 while AWS is unreachable and keeps the original notification text so a fixed parser can re-run. Data

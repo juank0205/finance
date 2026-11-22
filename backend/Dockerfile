@@ -22,6 +22,9 @@ FROM gcr.io/distroless/static-debian12:nonroot AS lambda
 COPY --from=adapter /lambda-adapter /opt/extensions/lambda-adapter
 COPY --from=build /out/app /app
 ENV AWS_LWA_READINESS_CHECK_PATH=/healthz
+# Lambda ignores USER and runs the image as its own unprivileged user, which cannot enter the
+# nonroot image's /home/nonroot (mode 700): starting there fails with Runtime.InvalidEntrypoint.
+WORKDIR /
 ENTRYPOINT ["/app"]
 
 # Edge (Raspberry Pi): static binary, no shell, non-root.
