@@ -41,8 +41,12 @@ module "github" {
   github_repo = var.github_repo
 }
 
+# Dashboard hosting (S3 + CloudFront). Off until AWS verifies the account for CloudFront (open
+# Support case); until then the dashboard runs locally against the real API (see
+# frontend/cloud-dashboard/README.md). Turn on with enable_web = true in terraform.tfvars.
 module "web" {
   source                   = "../../modules/web"
+  count                    = var.enable_web ? 1 : 0
   name                     = local.name
   github_repo              = var.github_repo
   github_oidc_provider_arn = module.github.oidc_provider_arn
@@ -60,36 +64,70 @@ module "security_baseline" {
   }
 }
 
-# module "data" {                # phase 4
-#   source = "../../modules/data"
-#   name   = local.name
-# }
+# The ledger table (DynamoDB). $0 inside the always-free allowance; backups well below $0.01/month.
+module "data" {
+  source = "../../modules/data"
+  name   = local.name
+}
 
 # module "iot" {                 # phase 4
 #   source = "../../modules/iot"
 #   name   = local.name
 # }
 
-# module "api" {                 # phase 5
-#   source = "../../modules/api"
-#   name   = local.name
-# }
-
-# module "web" {                 # phase 5
-#   source = "../../modules/web"
-#   name   = local.name
-# }
-
-output "dashboard_url" {
-  value = module.web.url
+# Dashboard sign-in (Cognito, no self sign-up, TOTP MFA). $0 in the Lite tier.
+module "auth" {
+  source        = "../../modules/auth"
+  name          = local.name
+  callback_urls = [for o in var.dashboard_origins : "${o}/"]
 }
 
-# The four values to set as GitHub repository variables (none of them is a secret).
+# cloud-api on Lambda behind a public Function URL that checks Cognito tokens. $0 inside Lambda's
+# always-free allowance; ECR storage about $0.003/month.
+module "api" {
+  source            = "../../modules/api"
+  name              = local.name
+  image_digest      = var.cloud_api_image_digest
+  table_name        = module.data.table_name
+  table_arn         = module.data.table_arn
+  cognito_issuer    = module.auth.issuer
+  cognito_client_id = module.auth.client_id
+  allowed_origins   = var.dashboard_origins
+}
+
+moved {
+  from = module.web
+  to   = module.web[0]
+}
+
+# What the dashboard needs in frontend/cloud-dashboard/.env.local (none of it is a secret).
+output "dashboard_env" {
+  value = {
+    VITE_API_URL           = module.api.url
+    VITE_COGNITO_DOMAIN    = module.auth.hosted_ui_url
+    VITE_COGNITO_CLIENT_ID = module.auth.client_id
+  }
+}
+
+output "cloud_api_repository" {
+  value = module.api.repository_url
+}
+
+output "user_pool_id" {
+  value = module.auth.user_pool_id
+}
+
+output "dashboard_url" {
+  value = one(module.web[*].url)
+}
+
+# The four values to set as GitHub repository variables (none of them is a secret). The web ones are
+# null while enable_web is false.
 output "github_variables" {
   value = {
     AWS_PLAN_ROLE_ARN   = module.github.plan_role_arn
-    AWS_DEPLOY_ROLE_ARN = module.web.deploy_role_arn
-    WEB_BUCKET          = module.web.bucket
-    WEB_DISTRIBUTION_ID = module.web.distribution_id
+    AWS_DEPLOY_ROLE_ARN = one(module.web[*].deploy_role_arn)
+    WEB_BUCKET          = one(module.web[*].bucket)
+    WEB_DISTRIBUTION_ID = one(module.web[*].distribution_id)
   }
 }

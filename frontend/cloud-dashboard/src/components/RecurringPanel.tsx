@@ -163,7 +163,6 @@ interface RuleFormProps {
 }
 
 function RuleForm({ rule, categories, currency, todayDay, onDone, onCancel }: RuleFormProps) {
-  const cur = rule?.currency ?? currency
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -177,11 +176,12 @@ function RuleForm({ rule, categories, currency, todayDay, onDone, onCancel }: Ru
       ? {
           kind: rule.kind,
           amount: amountInput(rule.amount_minor, rule.currency),
+          currency: rule.currency,
           merchant: rule.merchant,
           category: categories.get(rule.category, rule.kind).id,
           note: rule.note ?? '',
         }
-      : { category: categories.ids.expense.has('bills') ? 'bills' : undefined },
+      : { currency, category: categories.ids.expense.has('bills') ? 'bills' : undefined },
     categories,
     clear,
   )
@@ -194,13 +194,16 @@ function RuleForm({ rule, categories, currency, todayDay, onDone, onCancel }: Ru
   const next = scheduleOk ? nextOccurrence(schedule, todayDay) : undefined
 
   const build = (endOverride?: string): RecurringInput | string => {
-    const checked = checkEntry(entry.values, cur)
+    const checked = checkEntry(entry.values)
     if ('error' in checked) return checked.error
+    // The form offers no transfers: they belong to accounts, and rules have none.
+    const { kind } = checked
+    if (kind === 'transfer') return 'A transfer cannot repeat.'
     if (!start) return 'Pick a start date.'
     if (!Number.isInteger(n) || n < 1 || n > 12) return 'Repeat every 1 to 12.'
     const endDate = endOverride ?? (end || undefined)
     if (endDate && endDate < start) return 'The end date must be on or after the start date.'
-    return { ...checked, currency: cur, start_date: start, end_date: endDate, every: n, unit }
+    return { ...checked, kind, start_date: start, end_date: endDate, every: n, unit }
   }
 
   const run = async (fn: () => Promise<string>) => {
@@ -254,7 +257,6 @@ function RuleForm({ rule, categories, currency, todayDay, onDone, onCancel }: Ru
       <EntryFields
         entry={entry}
         categories={categories}
-        currency={cur}
         dateField={
           <label>
             <span>Starts</span>

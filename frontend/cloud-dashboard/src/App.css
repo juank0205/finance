@@ -224,6 +224,21 @@ main,
   font-weight: 600;
 }
 
+/* A balance in another currency: its value in the summary currency underneath. */
+.nw-base {
+  display: block;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.nw-empty {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 /* --- Stat tiles ------------------------------------------------------------------------------ */
 
 .tiles {
@@ -610,6 +625,11 @@ main,
   color: var(--good-text);
 }
 
+/* Transfers only move money between your own accounts: no sign, no color. */
+.money-moved {
+  color: var(--text-secondary);
+}
+
 .sort {
   background: none;
   border: 0;
@@ -693,6 +713,48 @@ main,
   justify-content: flex-end;
   gap: 8px;
   margin-top: 16px;
+}
+
+/* --- Accounts ------------------------------------------------------------------------------- */
+
+.acct-none {
+  margin-top: 16px;
+}
+
+.acct-edit-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 4px;
+}
+
+.acct-fields {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) minmax(0, 1fr);
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.acct-fields label {
+  display: grid;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.acct-fields input {
+  width: 100%;
+  color: var(--text-primary);
+}
+
+.acct-fields input:disabled {
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.acct-hint {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 /* --- Recurring ------------------------------------------------------------------------------ */
@@ -824,6 +886,18 @@ main,
   resize: vertical;
 }
 
+/* A checkbox beside its text, not a full-width field. */
+.form-grid label.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.form-grid .check input {
+  width: auto;
+  margin: 0;
+}
+
 .span-2 {
   grid-column: 1 / -1;
 }
@@ -856,5 +930,13 @@ main,
 
   .hide-sm {
     display: none;
+  }
+
+  .acct-fields {
+    grid-template-columns: 72px minmax(0, 1fr);
+  }
+
+  .acct-fields .acct-date {
+    grid-column: 1 / -1;
   }
 }

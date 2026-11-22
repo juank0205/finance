@@ -1,15 +1,19 @@
-import type { Category, Transaction, TransactionKind } from './api/types.ts'
+import type { Category, CategoryKind, Transaction, TransactionKind } from './api/types.ts'
 
-export const KINDS: TransactionKind[] = ['expense', 'income', 'investment']
+/** The kinds that have categories; transfers have none. */
+export const KINDS: CategoryKind[] = ['expense', 'income', 'investment']
 
 export const KIND_LABEL: Record<TransactionKind, string> = {
   expense: 'Expense',
   income: 'Income',
   investment: 'Investment',
+  transfer: 'Transfer',
 }
 
+export const isCategoryKind = (k: string): k is CategoryKind => (KINDS as string[]).includes(k)
+
 /** Built-in catch-all per kind: can be renamed and recolored, never deleted. */
-export const CATCH_ALL: Record<TransactionKind, string> = {
+export const CATCH_ALL: Record<CategoryKind, string> = {
   expense: 'other',
   income: 'income',
   investment: 'investment',
@@ -40,20 +44,20 @@ export function kindOf(t: Pick<Transaction, 'kind' | 'amount_minor'>): Transacti
 }
 
 /** Ids that aren't configured for this kind (deleted, or new from the parser) fall into its catch-all. */
-export function resolveId(id: string | undefined, kind: TransactionKind, known: ReadonlySet<string>): string {
+export function resolveId(id: string | undefined, kind: CategoryKind, known: ReadonlySet<string>): string {
   return id && known.has(id) ? id : CATCH_ALL[kind]
 }
 
 /** Builds one value per kind, typed as a full record. */
-export function perKind<T>(fn: (kind: TransactionKind) => T): Record<TransactionKind, T> {
+export function perKind<T>(fn: (kind: CategoryKind) => T): Record<CategoryKind, T> {
   return { expense: fn('expense'), income: fn('income'), investment: fn('investment') }
 }
 
 export interface CategoryIndex {
   all: Category[]
-  byKind: Record<TransactionKind, Category[]>
-  ids: Record<TransactionKind, ReadonlySet<string>>
-  get(id: string | undefined, kind: TransactionKind): Category
+  byKind: Record<CategoryKind, Category[]>
+  ids: Record<CategoryKind, ReadonlySet<string>>
+  get(id: string | undefined, kind: CategoryKind): Category
 }
 
 export function indexCategories(all: Category[]): CategoryIndex {

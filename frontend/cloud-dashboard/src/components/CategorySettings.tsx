@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { Category, TransactionKind } from '../api/types.ts'
+import type { Category, CategoryKind } from '../api/types.ts'
 import { CATCH_ALL, KINDS, KIND_LABEL, MAX_CATEGORIES, colorVar, perKind } from '../categories.ts'
 
 interface Props {
@@ -8,11 +8,11 @@ interface Props {
   onClose: () => void
 }
 
-type Draft = Record<TransactionKind, Category[]>
+type Draft = Record<CategoryKind, Category[]>
 
 const SLOTS = Array.from({ length: MAX_CATEGORIES }, (_, i) => i + 1)
 
-const TAB_LABEL: Record<TransactionKind, string> = {
+const TAB_LABEL: Record<CategoryKind, string> = {
   expense: 'Expenses',
   income: 'Income',
   investment: 'Investments',
@@ -41,7 +41,7 @@ export function CategorySettings({ initial, onSave, onClose }: Props) {
   const [draft, setDraft] = useState<Draft>(
     () => perKind((k) => initial.filter((c) => c.kind === k)),
   )
-  const [tab, setTab] = useState<TransactionKind>('expense')
+  const [tab, setTab] = useState<CategoryKind>('expense')
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
