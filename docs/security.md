@@ -29,10 +29,14 @@ Security is the top priority. Every phase must keep every box below that applies
 - [ ] Parser container has no network access
 - [ ] `govulncheck`, `npm audit`, Dependabot; Trivy image scanning (phase 6)
 - [ ] GitHub Actions pinned to commit SHAs; base images pinned by digest
+- [x] `cloud-api`'s one outbound call is a GET for public daily exchange rates (fawazahmed0/exchange-api
+  via jsDelivr, Cloudflare Pages as fallback): no credentials or ledger data are sent; answers are
+  size-capped and sanity-checked, and a bad rate can only skew displayed EUR totals
 
 ## Detection and cost
 - [ ] CloudTrail with log file validation; IAM Access Analyzer; GuardDuty (opt-in, it is not free)
 - [ ] Email alerts: root activity; IAM users/access keys created; CloudTrail stopped or changed
 - [ ] AWS Budgets alarms ($5, $10) + Cost Anomaly Detection (cost spikes often mean compromise)
-- [ ] API Gateway throttling + Lambda reserved concurrency as a hard cost ceiling
+- [ ] Lambda reserved concurrency as a hard cost ceiling (needs an account concurrency limit above 10;
+      the Function URL has no throttling of its own)
 - [ ] Phone heartbeat: alert when no events arrive for N days

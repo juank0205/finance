@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
+import { authEnabled, signOut } from './api/auth.ts'
 import { api, usingMockData } from './api/client.ts'
-import type { Category, NetWorth, Summary, Transaction, TransactionInput } from './api/types.ts'
+import type { Account, Category, NetWorth, Summary, Transaction, TransactionInput } from './api/types.ts'
 import { indexCategories } from './categories.ts'
+import { AccountSettings } from './components/AccountSettings.tsx'
 import { CategoryPie } from './components/CategoryPie.tsx'
 import { CategorySettings } from './components/CategorySettings.tsx'
 import { MonthlyChart } from './components/MonthlyChart.tsx'
@@ -38,11 +40,15 @@ function App() {
   const [month, setMonth] = useState(() => monthFromUrl(thisMonth))
   const [category, setCategory] = useState<string | null>(null)
   const [categoryList, setCategoryList] = useState<Category[] | null>(null)
+  const [accountList, setAccountList] = useState<Account[] | null>(null)
   // Bumped after saving categories, so the summary is re-fetched with the new grouping.
   const [version, setVersion] = useState(0)
+  // Bumped after anything that moves a balance: accounts, and entries tied to them.
+  const [balancesVersion, setBalancesVersion] = useState(0)
   const [result, setResult] = useState<Result<Data> | null>(null)
   const [netWorth, setNetWorth] = useState<Result<NetWorth> | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [accountsOpen, setAccountsOpen] = useState(false)
   const [recurringOpen, setRecurringOpen] = useState(false)
   // null: closed. {}: adding. {editing}: editing that manual entry.
   const [form, setForm] = useState<{ editing?: Transaction } | null>(null)
@@ -56,11 +62,25 @@ function App() {
       .then(setCategoryList)
       .catch((err: unknown) => !ctrl.signal.aborted && setSetupError(`Could not load categories: ${String(err)}`))
     api
-      .then((a) => a.netWorth(ctrl.signal))
-      .then((data) => setNetWorth({ key: 'now', data }))
-      .catch((err: unknown) => !ctrl.signal.aborted && setNetWorth({ key: 'now', error: String(err) }))
+      .then((a) => a.accounts(ctrl.signal))
+      .then(setAccountList)
+      .catch((err: unknown) => !ctrl.signal.aborted && setSetupError(`Could not load accounts: ${String(err)}`))
     return () => ctrl.abort()
   }, [])
+
+  useEffect(() => {
+    const ctrl = new AbortController()
+    const nwKey = String(balancesVersion)
+    api
+      .then((a) => a.netWorth(ctrl.signal))
+      .then((data) => setNetWorth({ key: nwKey, data }))
+      .catch((err: unknown) => {
+        if (ctrl.signal.aborted) return
+        // Keep the last balances on screen under the error.
+        setNetWorth((n) => ({ key: nwKey, error: String(err), data: n?.data }))
+      })
+    return () => ctrl.abort()
+  }, [balancesVersion])
 
   const key = `${month}#${version}`
   useEffect(() => {
@@ -94,6 +114,12 @@ function App() {
     setVersion((v) => v + 1)
   }
 
+  const saveAccounts = async (list: Account[]) => {
+    const saved = await (await api).saveAccounts(list)
+    setAccountList(saved)
+    setBalancesVersion((v) => v + 1)
+  }
+
   const submitEntry = async (input: TransactionInput) => {
     const a = await api
     const saved = form?.editing ? await a.updateTransaction(form.editing.id, input) : await a.createTransaction(input)
@@ -105,6 +131,8 @@ function App() {
         : { text: `${verb} “${saved.merchant}” in ${monthLabel(savedMonth)}.`, month: savedMonth },
     )
     setVersion((v) => v + 1)
+    // The entry, or the one it replaced, may be tied to an account.
+    if (saved.account || form?.editing?.account) setBalancesVersion((v) => v + 1)
   }
 
   const deleteEntry = async () => {
@@ -113,11 +141,13 @@ function App() {
     const skipped = form.editing.source === 'recurring'
     setNotice({ text: `${skipped ? 'Skipped' : 'Deleted'} “${form.editing.merchant}”.` })
     setVersion((v) => v + 1)
+    if (form.editing.account) setBalancesVersion((v) => v + 1)
   }
 
   const loading = result?.key !== key
   const data = result?.data
   const error = loading ? undefined : result?.error
+  const currency = data?.summary.currency ?? netWorth?.data?.currency ?? 'EUR'
 
   return (
     <div className="page" aria-busy={loading}>
@@ -137,9 +167,17 @@ function App() {
           <button type="button" className="ghost" onClick={() => setSettingsOpen(true)} disabled={!categoryList}>
             Categories
           </button>
-          <button type="button" className="primary" onClick={() => setForm({})} disabled={!categories}>
+          <button type="button" className="ghost" onClick={() => setAccountsOpen(true)} disabled={!accountList}>
+            Accounts
+          </button>
+          <button type="button" className="primary" onClick={() => setForm({})} disabled={!categories || !accountList}>
             + Add
           </button>
+          {authEnabled && (
+            <button type="button" className="ghost" onClick={() => void signOut()}>
+              Sign out
+            </button>
+          )}
         </div>
       </header>
 
@@ -165,7 +203,11 @@ function App() {
       )}
 
       <main>
-        <NetWorthCard data={netWorth?.data} error={netWorth?.error} />
+        <NetWorthCard
+          data={netWorth?.data}
+          error={netWorth?.error}
+          onAddAccounts={accountList ? () => setAccountsOpen(true) : undefined}
+        />
 
         <div className="month-bar">
           <h2 className="month-current" aria-live="polite">
@@ -223,6 +265,7 @@ function App() {
             <TransactionsTable
               transactions={data.transactions}
               categories={categories}
+              accounts={accountList ?? []}
               filter={category}
               onFilter={setCategory}
               onEdit={(t) => setForm({ editing: t })}
@@ -231,10 +274,11 @@ function App() {
         )}
       </main>
 
-      {form && categories && (
+      {form && categories && accountList && (
         <TransactionForm
           categories={categories}
-          currency={data?.summary.currency ?? netWorth?.data?.currency ?? 'EUR'}
+          accounts={accountList}
+          currency={currency}
           today={today}
           editing={form.editing}
           onSubmit={submitEntry}
@@ -246,7 +290,7 @@ function App() {
       {recurringOpen && categories && (
         <RecurringPanel
           categories={categories}
-          currency={data?.summary.currency ?? netWorth?.data?.currency ?? 'EUR'}
+          currency={currency}
           today={today}
           onChanged={(text) => {
             setNotice({ text })
@@ -258,6 +302,16 @@ function App() {
 
       {settingsOpen && categoryList && (
         <CategorySettings initial={categoryList} onSave={saveCategories} onClose={() => setSettingsOpen(false)} />
+      )}
+
+      {accountsOpen && accountList && (
+        <AccountSettings
+          initial={accountList}
+          currency={currency}
+          today={today}
+          onSave={saveAccounts}
+          onClose={() => setAccountsOpen(false)}
+        />
       )}
     </div>
   )

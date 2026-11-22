@@ -1,4 +1,5 @@
-import type { Api, Category, NetWorth, Recurring, Summary, Transaction } from './types.ts'
+import { accessToken, authEnabled, signIn } from './auth.ts'
+import type { Account, Api, Category, NetWorth, Recurring, Summary, Transaction } from './types.ts'
 
 const baseUrl = import.meta.env.VITE_API_URL
 
@@ -12,14 +13,20 @@ export const api: Promise<Api> = baseUrl
 type Method = 'GET' | 'POST' | 'PUT' | 'DELETE'
 
 function httpApi(base: string): Api {
-  // TODO(phase 5): send the Cognito access token as a Bearer header.
   async function call<T>(method: Method, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
-    const res = await fetch(new URL(path, base), {
+    // base may be relative ("/" = same origin as the page) or a full URL.
+    const res = await fetch(new URL(path, new URL(base, window.location.origin)), {
       method,
       signal,
-      headers: { Accept: 'application/json', ...(body ? { 'Content-Type': 'application/json' } : {}) },
+      headers: {
+        Accept: 'application/json',
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
+        ...(authEnabled ? { Authorization: `Bearer ${await accessToken()}` } : {}),
+      },
       body: body ? JSON.stringify(body) : undefined,
     })
+    // The token was revoked or the pool changed: sign in again.
+    if (res.status === 401 && authEnabled) return signIn()
     if (!res.ok) {
       // cloud-api answers errors as {"error": "..."}; show that message when there is one.
       const detail = await res
@@ -51,5 +58,8 @@ function httpApi(base: string): Api {
     categories: (signal) =>
       call<{ items: Category[] }>('GET', '/v1/categories', undefined, signal).then((r) => r.items),
     saveCategories: (items) => call<{ items: Category[] }>('PUT', '/v1/categories', { items }).then((r) => r.items),
+    accounts: (signal) =>
+      call<{ items: Account[] }>('GET', '/v1/accounts', undefined, signal).then((r) => r.items),
+    saveAccounts: (items) => call<{ items: Account[] }>('PUT', '/v1/accounts', { items }).then((r) => r.items),
   }
 }

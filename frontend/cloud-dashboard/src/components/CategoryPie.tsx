@@ -58,9 +58,12 @@ export function CategoryPie({ totals, total, currency, categories, active, onTog
     return t && t.spent_minor > 0 ? [{ c, t }] : []
   })
 
+  // Arcs share the slices' own sum: a category whose refunds outweigh its spending is net negative,
+  // has no slice, and would otherwise make the ring overrun.
+  const values = slices.map((s) => s.t.spent_minor)
   const paths = slicePaths(
-    slices.map((s) => s.t.spent_minor),
-    total,
+    values,
+    values.reduce((sum, v) => sum + v, 0),
   )
   const arcs = slices.map((s, i) => ({ ...s, d: paths[i] }))
 
