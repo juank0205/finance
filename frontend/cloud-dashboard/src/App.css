@@ -53,6 +53,7 @@ main,
 
 .top-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -910,6 +911,154 @@ main,
   margin-top: 10px;
 }
 
+/* --- Statement import ---------------------------------------------------------------------- */
+
+/* Header and actions stay put; only the lines scroll. [open]: a closed dialog must stay hidden. */
+.settings.import {
+  width: min(1040px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+}
+
+.settings.import[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.imp-pick {
+  margin-top: 16px;
+}
+
+.imp-none {
+  margin-top: 16px;
+}
+
+.imp-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 12px 0 8px;
+}
+
+.imp-tools .card-sub {
+  margin-right: auto;
+}
+
+.imp-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  border-top: 1px solid var(--grid);
+  border-bottom: 1px solid var(--grid);
+}
+
+.imp-table {
+  min-width: 820px;
+}
+
+.imp-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface);
+}
+
+.imp-table td {
+  vertical-align: top;
+}
+
+.imp-table input:not([type='checkbox']),
+.imp-table select {
+  width: 100%;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.imp-table input:disabled,
+.imp-table select:disabled {
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.imp-check {
+  width: 1%;
+}
+
+.imp-check input {
+  margin: 8px 0 0;
+}
+
+/* Text cells line up with the text inside the inputs beside them. */
+.imp-table .imp-date,
+.imp-table .imp-amount {
+  padding-top: 13px;
+}
+
+.imp-entry {
+  min-width: 180px;
+}
+
+.imp-bank {
+  display: block;
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.imp-kind {
+  width: 150px;
+}
+
+.imp-cat {
+  width: 170px;
+}
+
+.imp-status {
+  width: 180px;
+}
+
+.imp-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-top: 5px;
+}
+
+.imp-badge {
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-secondary);
+}
+
+.imp-badge.is-dup {
+  border-color: var(--cat-4);
+  color: var(--text-primary);
+}
+
+.imp-badge.is-done {
+  border-color: var(--good-text);
+  color: var(--good-text);
+}
+
+.imp-badge.is-learned {
+  border-color: var(--series-1);
+}
+
+.imp-table tr.is-off .imp-entry,
+.imp-table tr.is-off .imp-date,
+.imp-table tr.is-off .imp-amount {
+  opacity: 0.6;
+}
+
+/* The line the last error is about. */
+.imp-table tr.is-bad td {
+  background: color-mix(in srgb, var(--bad-text) 10%, transparent);
+}
+
 /* --- Narrow screens -------------------------------------------------------------------------- */
 
 @media (max-width: 860px) {
@@ -938,5 +1087,102 @@ main,
 
   .acct-fields .acct-date {
     grid-column: 1 / -1;
+  }
+
+  .settings.import {
+    width: calc(100vw - 16px);
+    max-height: calc(100dvh - 16px);
+    padding: 16px;
+  }
+}
+
+/* Phones: each line is a card; every control has its own label, so the header row can go. */
+@media (max-width: 680px) {
+  .imp-table {
+    min-width: 0;
+  }
+
+  .imp-table thead {
+    display: none;
+  }
+
+  .imp-table,
+  .imp-table tbody {
+    display: block;
+  }
+
+  .imp-table tr {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas:
+      'check date amount'
+      'check entry entry'
+      '. kind cat'
+      '. status status';
+    gap: 6px 10px;
+    padding: 10px 2px;
+    border-bottom: 1px solid var(--grid);
+  }
+
+  .imp-table tbody tr:last-child {
+    border-bottom: 0;
+  }
+
+  .imp-table td,
+  .imp-table .imp-date,
+  .imp-table .imp-amount {
+    display: block;
+    width: auto;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  .imp-table tr.is-bad {
+    background: color-mix(in srgb, var(--bad-text) 10%, transparent);
+  }
+
+  .imp-table tr.is-bad td {
+    background: none;
+  }
+
+  .imp-check {
+    grid-area: check;
+  }
+
+  .imp-check input {
+    margin: 2px 0 0;
+  }
+
+  .imp-date {
+    grid-area: date;
+  }
+
+  .imp-amount {
+    grid-area: amount;
+  }
+
+  .imp-entry {
+    grid-area: entry;
+  }
+
+  .imp-kind {
+    grid-area: kind;
+  }
+
+  .imp-cat {
+    grid-area: cat;
+  }
+
+  .imp-status {
+    grid-area: status;
+  }
+
+  .imp-badges {
+    padding-top: 0;
+  }
+
+  .imp-status:has(.imp-badges:empty) {
+    display: none;
   }
 }

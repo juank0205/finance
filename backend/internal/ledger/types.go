@@ -35,6 +35,74 @@ type TransactionInput struct {
 	ToAmountMinor int64  `json:"to_amount_minor,omitempty"`
 }
 
+// ImportPreviewInput is the body of POST /v1/imports/preview.
+type ImportPreviewInput struct {
+	Account string `json:"account"` // Account.id the statement belongs to
+	File    string `json:"file"`    // the statement file, base64
+}
+
+// ImportStatus says what booking a statement line would do.
+type ImportStatus string
+
+const (
+	ImportNew           ImportStatus = "new"
+	ImportDone          ImportStatus = "imported"       // this exact line was imported before
+	ImportDuplicate     ImportStatus = "duplicate"      // an entry with the same amount a few days apart exists
+	ImportBeforeOpening ImportStatus = "before_opening" // before the account's opening date: cannot be booked
+)
+
+// ImportLine is a statement line with the entry suggested for it.
+type ImportLine struct {
+	Key         string                   `json:"key"`
+	Day         string                   `json:"day"`          // YYYY-MM-DD
+	AmountMinor int64                    `json:"amount_minor"` // signed: negative = money out of the account
+	Currency    string                   `json:"currency"`
+	Description string                   `json:"description"` // the bank's text
+	Status      ImportStatus             `json:"status"`
+	Match       *transaction.Transaction `json:"match,omitempty"` // the existing entry, when imported or duplicate
+
+	// The suggested entry. Learned means it copies an earlier import from the same counterparty.
+	Kind         transaction.Kind `json:"kind"`
+	Merchant     string           `json:"merchant"`
+	Category     string           `json:"category,omitempty"`
+	OtherAccount string           `json:"other_account,omitempty"` // transfers: the account on the other side
+	Learned      bool             `json:"learned"`
+}
+
+// ImportPreview is the reply of POST /v1/imports/preview.
+type ImportPreview struct {
+	Format  string       `json:"format"` // "sg", "revolut" or "bancolombia"
+	Account string       `json:"account"`
+	Lines   []ImportLine `json:"lines"`
+	Skipped int          `json:"skipped"` // rows that are not completed movements in the account's currency
+}
+
+// ImportEntry is a line to book, as the person confirmed it. A positive expense is a refund; a
+// transfer goes to OtherAccount when the amount is negative and comes from it otherwise.
+type ImportEntry struct {
+	Key          string           `json:"key"`
+	Day          string           `json:"day"`
+	AmountMinor  int64            `json:"amount_minor"`
+	Currency     string           `json:"currency"`
+	Kind         transaction.Kind `json:"kind"`
+	Merchant     string           `json:"merchant"`
+	Category     string           `json:"category,omitempty"`
+	Note         string           `json:"note,omitempty"`
+	OtherAccount string           `json:"other_account,omitempty"`
+}
+
+// ImportInput is the body of POST /v1/imports: up to 200 lines of one statement.
+type ImportInput struct {
+	Account string        `json:"account"`
+	Lines   []ImportEntry `json:"lines"`
+}
+
+// ImportResult counts what POST /v1/imports did.
+type ImportResult struct {
+	Added        int `json:"added"`
+	AlreadyThere int `json:"already_there"` // imported before, so skipped
+}
+
 // AccountKind says whether an account holds money or is a debt.
 type AccountKind string
 

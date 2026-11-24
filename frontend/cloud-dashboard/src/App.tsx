@@ -6,6 +6,7 @@ import { indexCategories } from './categories.ts'
 import { AccountSettings } from './components/AccountSettings.tsx'
 import { CategoryPie } from './components/CategoryPie.tsx'
 import { CategorySettings } from './components/CategorySettings.tsx'
+import { ImportPanel } from './components/ImportPanel.tsx'
 import { MonthlyChart } from './components/MonthlyChart.tsx'
 import { RecurringPanel } from './components/RecurringPanel.tsx'
 import { NetWorthCard } from './components/NetWorthCard.tsx'
@@ -50,6 +51,7 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [accountsOpen, setAccountsOpen] = useState(false)
   const [recurringOpen, setRecurringOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
   // null: closed. {}: adding. {editing}: editing that manual entry.
   const [form, setForm] = useState<{ editing?: Transaction } | null>(null)
   const [notice, setNotice] = useState<{ text: string; month?: string } | null>(null)
@@ -170,6 +172,12 @@ function App() {
           <button type="button" className="ghost" onClick={() => setAccountsOpen(true)} disabled={!accountList}>
             Accounts
           </button>
+          {/* A statement belongs to an account, so there is nothing to import into without one. */}
+          {accountList && accountList.length > 0 && (
+            <button type="button" className="ghost" onClick={() => setImportOpen(true)} disabled={!categories}>
+              Import statement
+            </button>
+          )}
           <button type="button" className="primary" onClick={() => setForm({})} disabled={!categories || !accountList}>
             + Add
           </button>
@@ -297,6 +305,20 @@ function App() {
             setVersion((v) => v + 1)
           }}
           onClose={() => setRecurringOpen(false)}
+        />
+      )}
+
+      {importOpen && categories && accountList && (
+        <ImportPanel
+          accounts={accountList}
+          categories={categories}
+          onImported={(text) => {
+            setNotice({ text })
+            setVersion((v) => v + 1)
+            // Every imported line is tied to the statement's account.
+            setBalancesVersion((v) => v + 1)
+          }}
+          onClose={() => setImportOpen(false)}
         />
       )}
 

@@ -12,8 +12,12 @@ import (
 	"finance/internal/transaction"
 )
 
-// maxBody is far above any real request (a full category list is ~1 KB).
-const maxBody = 64 << 10
+// maxBody is far above any real request (a full category list is ~1 KB). Statement imports carry a
+// file or many lines, so they get maxImportBody.
+const (
+	maxBody       = 64 << 10
+	maxImportBody = 4 << 20
+)
 
 var monthRe = regexp.MustCompile(`^\d{4}-(0[1-9]|1[0-2])$`)
 
@@ -54,6 +58,21 @@ func NewHandler(s *Service) http.Handler {
 	})
 	mux.HandleFunc("DELETE /v1/transactions/{id}", func(w http.ResponseWriter, r *http.Request) {
 		reply(w, http.StatusNoContent, nil, s.DeleteTransaction(r.Context(), r.PathValue("id")))
+	})
+
+	mux.HandleFunc("POST /v1/imports/preview", func(w http.ResponseWriter, r *http.Request) {
+		var in ImportPreviewInput
+		if decodeLimit(w, r, &in, maxImportBody) {
+			v, err := s.PreviewImport(r.Context(), in)
+			reply(w, http.StatusOK, v, err)
+		}
+	})
+	mux.HandleFunc("POST /v1/imports", func(w http.ResponseWriter, r *http.Request) {
+		var in ImportInput
+		if decodeLimit(w, r, &in, maxImportBody) {
+			v, err := s.Import(r.Context(), in)
+			reply(w, http.StatusOK, v, err)
+		}
 	})
 
 	mux.HandleFunc("GET /v1/recurring", func(w http.ResponseWriter, r *http.Request) {
@@ -122,11 +141,15 @@ func monthParam(w http.ResponseWriter, r *http.Request) (string, bool) {
 // decode reads exactly one JSON object with no unknown fields. Requiring the JSON content type also
 // means a plain HTML form on another site can never post here.
 func decode(w http.ResponseWriter, r *http.Request, dst any) bool {
+	return decodeLimit(w, r, dst, maxBody)
+}
+
+func decodeLimit(w http.ResponseWriter, r *http.Request, dst any, limit int64) bool {
 	if mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil || mt != "application/json" {
 		writeError(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
 		return false
 	}
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBody))
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, limit))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(dst); err != nil || dec.Decode(&struct{}{}) != io.EOF {
 		writeError(w, http.StatusBadRequest, "Invalid request body")
