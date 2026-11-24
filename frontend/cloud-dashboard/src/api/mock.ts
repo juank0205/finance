@@ -19,6 +19,12 @@ import type {
   Category,
   CategoryKind,
   CategoryTotal,
+  ImportEntry,
+  ImportFormat,
+  ImportLine,
+  ImportPreview,
+  ImportResult,
+  ImportStatus,
   NetWorth,
   Recurring,
   RecurringInput,
@@ -646,6 +652,263 @@ function netWorth(): NetWorth {
   return out
 }
 
+// --- Statement import (backend/internal/ledger/imports.go) ---------------------------------------
+
+const MAX_IMPORT_FILE = 2 << 20 // bytes, before base64
+const MAX_IMPORT_BATCH = 200
+const IMPORT_FORMATS: ImportFormat[] = ['sg', 'revolut', 'bancolombia']
+const IMPORT_PREFIX = 'import:' // dedup_key of an imported line: "import:<line key>"
+
+/** A line the demo "parses" out of any file. Amounts are EUR major units, signed like the statement. */
+interface DemoLine {
+  id: string
+  day: number // of this month; clamped to today
+  major: number
+  text: string // the counterparty as the bank writes it
+  card?: boolean
+  kind: TransactionKind
+  merchant: string
+  category?: string
+  learned?: boolean
+}
+
+const DEMO_LINES: DemoLine[] = [
+  { id: 'fresh', day: 3, major: -42.3, text: 'Fresh Market', card: true, kind: 'expense', merchant: 'Fresh Market', category: 'groceries', learned: true },
+  { id: 'noodle', day: 6, major: -18.9, text: 'Noodle Bar 12', card: true, kind: 'expense', merchant: 'Noodle Bar 12', category: 'other' },
+  { id: 'ana', day: 8, major: 25, text: 'Ana Garcia', kind: 'expense', merchant: 'Ana, her share of lunch', category: 'restaurants', learned: true },
+  { id: 'client', day: 12, major: 450, text: 'Studio Nord SARL', kind: 'income', merchant: 'Studio Nord Sarl', category: 'income' },
+  { id: 'broker', day: 14, major: -100, text: 'Broker invest', kind: 'investment', merchant: 'Broker Invest', category: 'investment' },
+  // The transfer's other side is the first other account; its text names it.
+  { id: 'savings', day: 16, major: -150, text: 'Savings', kind: 'transfer', merchant: 'Savings', learned: true },
+]
+
+/** What each bank prints: SG and Bancolombia shout and prefix the type, Revolut keeps the name. */
+function bankText(format: ImportFormat, text: string, card: boolean, day: string): string {
+  const [, m, d] = day.split('-')
+  const upper = text.toUpperCase()
+  if (format === 'revolut') return text
+  if (format === 'sg') return card ? `CARTE X${CARD} ${d}/${m} ${upper}` : `VIR ${upper}`
+  return card ? `COMPRA EN ${upper}` : `TRANSFERENCIA ${upper}`
+}
+
+/** EUR major units in `currency`; currencies worth little get round amounts, like real COP prices. */
+function demoMinor(major: number, currency: string): number {
+  const rate = RATES[currency] ?? 1
+  return rate >= 100 ? Math.round((major * rate) / 100) * 100_00 : Math.round(major * rate * 100)
+}
+
+/**
+ * Ignores the file: every statement holds the same few lines, dated this month in the account's
+ * currency, plus one line already booked, one that looks like an existing entry, and one from before
+ * the opening date, so every status shows.
+ */
+function previewImport(account: string, file: string): ImportPreview {
+  const accounts = loadAccounts()
+  const acct = accounts.find((a) => a.id === account)
+  if (!acct) throw new Error('Pick the account this statement is for')
+  if ((file.length * 3) / 4 > MAX_IMPORT_FILE) throw new Error('The file is larger than 2 MB')
+  if (!file) throw new Error('Invalid file')
+
+  const format: ImportFormat = acct.currency === 'COP' ? 'bancolombia' : acct.currency === 'EUR' ? 'sg' : 'revolut'
+  const now = new Date()
+  const month = currentMonth(now)
+  const today = toDay(now)
+  const categories = loadCategories()
+  const categoryFor = (kind: CategoryKind, id?: string) =>
+    categories.some((c) => c.id === id && c.kind === kind) ? id : CATCH_ALL[kind]
+  const other = accounts.find((a) => a.id !== acct.id && a.kind === 'cash') ?? accounts.find((a) => a.id !== acct.id)
+  const booked = new Map(
+    loadManual()
+      .filter((t) => t.dedup_key.startsWith(IMPORT_PREFIX))
+      .map((t) => [t.dedup_key.slice(IMPORT_PREFIX.length), t]),
+  )
+
+  type Raw = Omit<ImportLine, 'status' | 'match'> & { preset?: { status: ImportStatus; match: Transaction } }
+  const raw: Raw[] = []
+  const key = (day: string, amount: number, id: string) => `${format}:${acct.id}:${day}:${amount}:${id}`
+
+  for (const d of DEMO_LINES) {
+    const day = `${month}-${String(Math.min(d.day, now.getDate())).padStart(2, '0')}`
+    const amount = demoMinor(d.major, acct.currency)
+    // Without a second account there is nothing to transfer to: the bank line stays a plain expense.
+    const transfer = d.kind === 'transfer' && other
+    const kind = d.kind === 'transfer' && !other ? 'expense' : d.kind
+    const text = transfer ? `${d.text} ${other.name}` : d.text
+    raw.push({
+      key: key(day, amount, d.id),
+      day,
+      amount_minor: amount,
+      currency: acct.currency,
+      description: bankText(format, text, !!d.card, day),
+      kind,
+      merchant: transfer ? `Savings to ${other.name}` : d.merchant,
+      category: kind === 'transfer' ? undefined : categoryFor(kind, d.category),
+      other_account: transfer ? other.id : undefined,
+      learned: !!d.learned && (d.kind !== 'transfer' || !!other),
+    })
+  }
+
+  // A line for an existing entry: the same amount, as this account saw it, on `day`.
+  const fromEntry = (t: Transaction, day: string, status: ImportStatus): Raw | undefined => {
+    const kind = kindOf(t)
+    const amount =
+      t.account === acct.id
+        ? accountAmount(t, acct)
+        : t.to_account === acct.id
+          ? (t.to_minor ?? 0)
+          : convert(t.amount_minor, t.currency, acct.currency)
+    if (!amount) return undefined
+    return {
+      key: key(day, amount, t.id),
+      day,
+      amount_minor: amount,
+      currency: acct.currency,
+      description: bankText(format, t.merchant, kind === 'expense', day),
+      kind,
+      merchant: t.merchant,
+      category: kind === 'transfer' ? undefined : categoryFor(kind, t.category),
+      other_account: kind === 'transfer' ? (t.account === acct.id ? t.to_account : t.account) : undefined,
+      learned: false,
+      preset: { status, match: t },
+    }
+  }
+
+  // Booked by an earlier statement upload (the generated bills are). The demo stands in its key.
+  const txs = transactionsFor(month)
+  const bill = txs.find((t) => t.source === 'statement' && !t.account && !t.refund)
+  const billLine = bill && fromEntry(bill, toDay(new Date(bill.occurred_at)), 'imported')
+  if (billLine) raw.push(billLine)
+  // The oldest entry of this account, a day later, as a card payment posts late. Demo accounts only
+  // have a few entries tied to them, so fall back to a Wallet payment.
+  const mine = txs.filter(
+    (t) => (t.account === acct.id || t.to_account === acct.id) && !t.dedup_key.startsWith(IMPORT_PREFIX),
+  )
+  const look = mine[mine.length - 1] ?? txs.findLast((t) => t.source === 'google_wallet')
+  if (look) {
+    const next = new Date(look.occurred_at)
+    next.setDate(next.getDate() + 1)
+    const dupLine = fromEntry(look, toDay(next) <= today ? toDay(next) : toDay(new Date(look.occurred_at)), 'duplicate')
+    if (dupLine) raw.push(dupLine)
+  }
+  const [oy, om, od] = acct.opening_date.split('-').map(Number)
+  const early = toDay(new Date(oy, om - 1, od - 1))
+  const earlyAmount = demoMinor(-9.5, acct.currency)
+  raw.push({
+    key: key(early, earlyAmount, 'early'),
+    day: early,
+    amount_minor: earlyAmount,
+    currency: acct.currency,
+    description: bankText(format, 'Café du Coin', true, early),
+    kind: 'expense',
+    merchant: 'Café du Coin',
+    category: categoryFor('expense', 'restaurants'),
+    learned: false,
+  })
+
+  const lines = raw
+    .map(({ preset, ...l }): ImportLine => {
+      if (l.day < acct.opening_date) return { ...l, status: 'before_opening' }
+      const done = booked.get(l.key)
+      if (done) return { ...l, status: 'imported', match: done }
+      return preset ? { ...l, ...preset } : { ...l, status: 'new' }
+    })
+    .sort((a, b) => a.day.localeCompare(b.day))
+  return { format, account: acct.id, lines, skipped: 2 }
+}
+
+/** "<format>:…", up to 600 bytes, no control characters. */
+function validImportKey(key: string): boolean {
+  const i = typeof key === 'string' ? key.indexOf(':') : -1
+  if (i < 0 || new TextEncoder().encode(key).length > 600) return false
+  const control = [...key].some((c) => {
+    const n = c.codePointAt(0) ?? 0
+    return n < 0x20 || (n >= 0x7f && n <= 0x9f)
+  })
+  return !control && (IMPORT_FORMATS as string[]).includes(key.slice(0, i))
+}
+
+/** A confirmed line as a TransactionInput. The sign is the statement's (imports.go importInput). */
+function importInput(e: ImportEntry, acct: Account, accounts: Account[]): TransactionInput {
+  if (!validImportKey(e.key)) throw new Error('Invalid line key')
+  if (!validDay(e.day)) throw new Error('Invalid date')
+  if (e.day < acct.opening_date) throw new Error("A line is dated before the account's opening date")
+  if (!Number.isInteger(e.amount_minor) || e.amount_minor === 0) throw new Error('A line has no amount')
+  const incoming = e.amount_minor > 0
+  const amount = Math.abs(e.amount_minor)
+  const out: TransactionInput = {
+    kind: e.kind,
+    amount_minor: amount,
+    currency: e.currency,
+    occurred_at: dayToInstant(e.day),
+    merchant: e.merchant,
+    category: e.category ?? '',
+    note: e.note,
+    account: acct.id,
+  }
+  switch (e.kind) {
+    case 'expense':
+      out.refund = incoming
+      break
+    case 'income':
+      if (!incoming) throw new Error(`${e.merchant}: income must be money coming in`)
+      break
+    case 'investment':
+      if (incoming) throw new Error(`${e.merchant}: an investment must be money going out`)
+      break
+    case 'transfer': {
+      const other = accounts.find((a) => a.id === e.other_account)
+      if (!other) throw new Error(`${e.merchant}: pick the other account of the transfer`)
+      out.category = ''
+      if (!incoming) {
+        out.to_account = other.id
+        break
+      }
+      // Money arrived from other: the transfer leaves other, in its currency.
+      out.account = other.id
+      out.to_account = acct.id
+      out.amount_minor = Math.max(convert(amount, e.currency, other.currency), 1)
+      out.currency = other.currency
+      out.to_amount_minor = amount
+    }
+  }
+  if (e.kind !== 'transfer' && e.other_account) throw new Error('Only transfers have another account')
+  return out
+}
+
+function importLines(account: string, lines: ImportEntry[]): ImportResult {
+  if (!Array.isArray(lines) || lines.length === 0 || lines.length > MAX_IMPORT_BATCH) {
+    throw new Error('Send between 1 and 200 lines at a time')
+  }
+  const accounts = loadAccounts()
+  const acct = accounts.find((a) => a.id === account)
+  if (!acct) throw new Error('Unknown account')
+  // Check and convert every line before booking any, so a bad line never leaves half a batch behind.
+  const todo = lines.map((e) => {
+    const input = importInput(e, acct, accounts)
+    let checked: Checked
+    try {
+      checked = validateInput(input)
+    } catch (err) {
+      throw new Error(`${e.merchant}: ${err instanceof Error ? err.message : String(err)}`)
+    }
+    return { ...toTransaction(`i-${hash(e.key).toString(16)}`, checked), dedup_key: `${IMPORT_PREFIX}${e.key}` }
+  })
+  const list = loadManual()
+  const seen = new Set(list.map((t) => t.dedup_key))
+  const res: ImportResult = { added: 0, already_there: 0 }
+  for (const t of todo) {
+    if (seen.has(t.dedup_key)) {
+      res.already_there++
+      continue
+    }
+    list.push(t)
+    seen.add(t.dedup_key)
+    res.added++
+  }
+  write(MANUAL_KEY, list)
+  return res
+}
+
 function delay<T>(value: () => T, signal?: AbortSignal): Promise<T> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -749,4 +1012,6 @@ export const mockApi: Api = {
       write(ACCOUNTS_KEY, clean)
       return clean
     }),
+  previewImport: (account, file) => delay(() => previewImport(account, file)),
+  importLines: (account, lines) => delay(() => importLines(account, lines)),
 }

@@ -4,8 +4,6 @@ import (
 	"cmp"
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"slices"
@@ -167,9 +165,7 @@ func (s *Service) ImportTransaction(ctx context.Context, in TransactionInput, ke
 	if err != nil {
 		return transaction.Transaction{}, err
 	}
-	sum := sha256.Sum256([]byte(key))
-	id := "i-" + hex.EncodeToString(sum[:13])
-	t, err := s.build(ctx, id, f, when, transaction.SourceManual, "import:"+key)
+	t, err := s.build(ctx, importID(key), f, when, transaction.SourceManual, "import:"+key)
 	if err != nil {
 		return t, err
 	}

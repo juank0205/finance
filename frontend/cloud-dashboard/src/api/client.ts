@@ -1,5 +1,15 @@
 import { accessToken, authEnabled, signIn } from './auth.ts'
-import type { Account, Api, Category, NetWorth, Recurring, Summary, Transaction } from './types.ts'
+import type {
+  Account,
+  Api,
+  Category,
+  ImportPreview,
+  ImportResult,
+  NetWorth,
+  Recurring,
+  Summary,
+  Transaction,
+} from './types.ts'
 
 const baseUrl = import.meta.env.VITE_API_URL
 
@@ -61,5 +71,7 @@ function httpApi(base: string): Api {
     accounts: (signal) =>
       call<{ items: Account[] }>('GET', '/v1/accounts', undefined, signal).then((r) => r.items),
     saveAccounts: (items) => call<{ items: Account[] }>('PUT', '/v1/accounts', { items }).then((r) => r.items),
+    previewImport: (account, file) => call<ImportPreview>('POST', '/v1/imports/preview', { account, file }),
+    importLines: (account, lines) => call<ImportResult>('POST', '/v1/imports', { account, lines }),
   }
 }

@@ -98,7 +98,9 @@ resource "aws_lambda_function" "cloud_api" {
   image_uri     = "${aws_ecr_repository.cloud_api.repository_url}@${var.image_digest}"
   architectures = ["arm64"]
   memory_size   = 256
-  timeout       = 10
+  # A statement import books up to 50 lines per request against a table provisioned at 5 writes per
+  # second; its burst capacity usually absorbs that, and the SDK retries when it does not.
+  timeout = 30
 
   # null leaves the function on the account's shared pool. A cap needs an account concurrency
   # limit above 10, which new accounts do not have.

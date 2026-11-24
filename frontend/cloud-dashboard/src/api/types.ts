@@ -141,6 +141,63 @@ export interface NetWorth {
   holdings: Holding[]
 }
 
+// Statement import (backend/internal/ledger/imports.go): POST /v1/imports/preview parses a bank
+// statement and suggests an entry per line; POST /v1/imports books the lines the person confirms.
+
+export type ImportFormat = 'sg' | 'revolut' | 'bancolombia'
+
+/**
+ * imported: this exact line was booked before. duplicate: an existing entry of the account has the
+ * same amount within 3 days (e.g. from Google Wallet). before_opening: dated before the account's
+ * opening date, so it cannot be booked.
+ */
+export type ImportStatus = 'new' | 'imported' | 'duplicate' | 'before_opening'
+
+export interface ImportLine {
+  key: string // stable per statement line; booking it twice is a no-op
+  day: string // YYYY-MM-DD
+  amount_minor: number // signed: negative = money out of the account
+  currency: string
+  description: string // the bank's raw text
+  status: ImportStatus
+  match?: Transaction // the existing entry, for imported and duplicate
+  // Suggestions, editable before importing.
+  kind: TransactionKind
+  merchant: string
+  category?: string // Category.id; none for transfers
+  other_account?: string // transfers: the account on the other side
+  learned: boolean // copied from an earlier import of the same counterparty
+}
+
+export interface ImportPreview {
+  format: ImportFormat
+  account: string
+  lines: ImportLine[]
+  skipped: number // rows of the file that are not movements
+}
+
+/**
+ * One confirmed line of POST /v1/imports; the server rejects unknown fields. The sign is the
+ * statement's: a positive expense is money back, income must be positive, an investment negative,
+ * and a transfer's sign says whether the money went to other_account or came from it.
+ */
+export interface ImportEntry {
+  key: string
+  day: string
+  amount_minor: number
+  currency: string
+  kind: TransactionKind
+  merchant: string
+  category?: string // required unless a transfer
+  note?: string
+  other_account?: string // transfers only; not the statement's account
+}
+
+export interface ImportResult {
+  added: number
+  already_there: number // booked by an earlier import
+}
+
 export interface Api {
   summary(month: string, signal?: AbortSignal): Promise<Summary>
   transactions(month: string, signal?: AbortSignal): Promise<Transaction[]>
@@ -156,4 +213,6 @@ export interface Api {
   saveCategories(categories: Category[]): Promise<Category[]>
   accounts(signal?: AbortSignal): Promise<Account[]>
   saveAccounts(accounts: Account[]): Promise<Account[]> // replaces the list; a currency cannot change
+  previewImport(account: string, file: string): Promise<ImportPreview> // file: base64, at most 2 MB decoded
+  importLines(account: string, lines: ImportEntry[]): Promise<ImportResult> // 1-200 lines per call
 }
