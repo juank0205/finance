@@ -1,10 +1,40 @@
 # Android app: Wallet notification forwarder
 
-Kotlin + Jetpack Compose. Create the project in **Android Studio** in this folder
-(*New Project → Empty Activity*, Kotlin DSL, package e.g. `dev.finance.wallet`, min SDK 29).
-Android Studio generates the Gradle files with current versions, so they are not scaffolded by hand.
+Kotlin + Jetpack Compose, package `dev.finance.wallet`, min SDK 29. Open this folder in Android Studio.
 
-## Planned components (phase 2)
+## Status: step a, capture only
+
+`WalletListenerService` stores Google Wallet notifications, as posted, in a local Room database
+(`raw_events`), and the main screen lists them. Nothing leaves the phone yet: the app has no `INTERNET`
+permission (the manifest strips it even if a library adds one), and backups and device transfer are off.
+
+- **Setup screen:** grant notification access. Turning off battery optimization is optional: Android
+  keeps a notification listener running on its own, so do it only if payments go missing. On Samsung,
+  the setting that matters is Battery → Background usage limits → *Never auto sleeping apps*.
+- **Apps seen:** package names (never content) of every app that posted since the listener started.
+  Use it on the real phone to confirm Wallet's package is `com.google.android.apps.walletnfcrel`.
+- **Duplicates:** the same notification seen twice is stored once (`fingerprint`). A re-post with a new
+  time is a new row; the Pi's `dedup_key` decides whether it is the same payment.
+
+### Testing on the emulator
+
+Debug builds also capture notifications posted from adb (release builds keep Wallet only):
+
+```bash
+adb shell cmd notification allow_listener dev.finance.wallet/dev.finance.wallet.capture.WalletListenerService
+adb shell "cmd notification post -t 'Carrefour' test1 'EUR 12.50 with Visa 0392'"
+```
+
+Real Wallet payments need the real phone (the emulator has no NFC). On Android 13+, a sideloaded app may
+show notification access as a "restricted setting": App info → ⋮ → *Allow restricted settings*.
+
+### Checks
+
+```bash
+./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleRelease
+```
+
+## Planned components (phase 2, step b onward)
 
 | Component | Job |
 |---|---|

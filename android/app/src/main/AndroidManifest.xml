@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+  xmlns:tools="http://schemas.android.com/tools">
+
+  <!-- Capture only: nothing leaves the phone yet. Removing INTERNET here also strips it if a library
+       ever adds it, so the build fails to reach the network rather than leaking silently. -->
+  <uses-permission
+    android:name="android.permission.INTERNET"
+    tools:node="remove" />
+  <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+  <!-- No backups and no device-to-device transfer: captured notifications stay on this phone.
+       allowBackup="false" alone does not stop device transfer on Android 12+, hence the rules. -->
+  <application
+    android:name=".WalletApp"
+    android:allowBackup="false"
+    android:dataExtractionRules="@xml/data_extraction_rules"
+    android:fullBackupContent="@xml/backup_rules"
+    android:icon="@mipmap/ic_launcher"
+    android:label="@string/app_name"
+    android:roundIcon="@mipmap/ic_launcher_round"
+    android:supportsRtl="true"
+    android:theme="@style/Theme.FinanceWallet">
+    <activity
+      android:name=".MainActivity"
+      android:exported="true"
+      android:theme="@style/Theme.FinanceWallet"
+      android:windowSoftInputMode="adjustResize">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN" />
+
+        <category android:name="android.intent.category.LAUNCHER" />
+      </intent-filter>
+    </activity>
+
+    <!-- Only the system can bind it: the permission is held by the system alone. -->
+    <service
+      android:name=".capture.WalletListenerService"
+      android:exported="true"
+      android:label="@string/app_name"
+      android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+      <intent-filter>
+        <action android:name="android.service.notification.NotificationListenerService" />
+      </intent-filter>
+    </service>
+  </application>
+
+</manifest>
