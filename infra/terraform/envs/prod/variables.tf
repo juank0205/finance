@@ -17,11 +17,17 @@ variable "github_repo" {
 variable "enable_web" {
   description = "Create the dashboard hosting (S3 + CloudFront). Needs an account AWS has verified for CloudFront"
   type        = bool
-  default     = false
+  default     = true
+}
+
+variable "dashboard_domain" {
+  description = "Where CloudFront serves the dashboard (DNS at the registrar, see docs/deploy-dashboard.md); empty = the *.cloudfront.net address"
+  type        = string
+  default     = "finance.chimborrio.shop"
 }
 
 variable "dashboard_origins" {
-  description = "Where the dashboard runs (no trailing slash): allowed to sign in and to call the API. Add the CloudFront address once enable_web is on"
+  description = "Other places the dashboard runs (no trailing slash), allowed to sign in and to call the API besides https://<dashboard_domain>"
   type        = list(string)
   default     = ["http://localhost:5173", "http://localhost:4173"] # npm run dev, npm run preview
 }
