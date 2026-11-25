@@ -133,6 +133,9 @@ jobs:
           if ! aws ecr describe-images --repository-name "$REPOSITORY" --image-ids imageTag="$tag" >/dev/null 2>&1; then
             registry="$(aws sts get-caller-identity --query Account --output text).dkr.ecr.$AWS_REGION.amazonaws.com"
             aws ecr get-login-password | docker login --username AWS --password-stdin "$registry"
+            # Signed in, pulls of the Lambda adapter image are not limited by the runner's shared IP.
+            # ECR Public only issues tokens in us-east-1.
+            aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
             # --provenance/--sbom off: Lambda rejects the multi-manifest index buildx creates otherwise.
             docker buildx build --platform linux/arm64 --target lambda --build-arg CMD=cloud-api \
               --provenance=false --sbom=false -t "$registry/$REPOSITORY:$tag" --push .

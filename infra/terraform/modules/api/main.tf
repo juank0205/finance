@@ -203,6 +203,14 @@ data "aws_iam_policy_document" "deploy" {
     actions   = ["ecr:GetAuthorizationToken"]
     resources = ["*"] # the action has no resource-level permissions
   }
+  # A signed-in pull of the base images on public.ecr.aws. Anonymous pulls share a quota per IP,
+  # which GitHub's shared runners use up ("429 Too Many Requests"). Pull only: pushing to ECR Public
+  # needs other actions. Neither action has resource-level permissions.
+  statement {
+    sid       = "EcrPublicLogin"
+    actions   = ["ecr-public:GetAuthorizationToken", "sts:GetServiceBearerToken"]
+    resources = ["*"]
+  }
   statement {
     sid = "PushImage"
     actions = [
