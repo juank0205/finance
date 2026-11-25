@@ -48,7 +48,7 @@ See [docs/architecture.md](docs/architecture.md), [docs/security.md](docs/securi
 - [ ] **2** Android listener app → `ingest-api` → `parser` → Postgres
 - [ ] **3** ~~Edge admin UI~~ dropped: everything a person does moved to the cloud ([ADR 0002](docs/adr/0002-cloud-owns-user-data.md))
 - [ ] **4** `uploader` → IoT Core → SQS → `cloud-ingest` → DynamoDB/S3 (`data`, `iot` modules)
-- [ ] **5** Cloud dashboard + `cloud-api` (`api`, `web` modules): UI done on demo data; hosting + CD ready ([guide](docs/deploy-dashboard.md)); next: Cognito, then the real API
+- [ ] **5** Cloud dashboard + `cloud-api` (`api`, `web` modules): Cognito sign-in with MFA, real API on Lambda with CD ([guide](docs/deploy-api.md)), hosting on CloudFront with CD ([guide](docs/deploy-dashboard.md))
 - [ ] **5b** In the dashboard: statement upload (done: Société Générale, Revolut, Bancolombia; categories learned from earlier imports), categorization rules, review of failed parses
 - [ ] **6** CD pipeline: image builds, scanning, signed deploys
 - [ ] **7** News fetching + Bedrock summaries for investment research

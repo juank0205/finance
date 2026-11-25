@@ -47,14 +47,56 @@ Back up `infra/terraform/bootstrap/terraform.tfstate` somewhere private (it is g
 
 ## 4. Create the hosting and the GitHub roles
 
+`enable_web` (default `true`) creates the hosting. It needs an account AWS has verified for
+CloudFront; on a new account CloudFront refuses until a Support case clears it, so set
+`enable_web = false` in `terraform.tfvars` until then. If the API is already deployed
+([deploy-api.md](deploy-api.md)), the plan only adds the `web` module's resources.
+
+The dashboard is served at `dashboard_domain` (`finance.chimborrio.shop`). DNS stays at GoDaddy, so
+two CNAME records are added there by hand. (Set `dashboard_domain = ""` to use the bare
+`*.cloudfront.net` address instead and skip 4a, 4b and 4d.)
+
+### 4a. The certificate alone
+
 ```powershell
 cd infra/terraform/envs/prod
 terraform init
-terraform plan     # read it. Expect: Plan: 41 to add, 0 to change, 0 to destroy (16 web/CI + 25 security baseline)
-terraform apply    # CloudFront takes about 5 minutes
+terraform apply -target='module.web[0].aws_acm_certificate.site[0]'   # 1 to add
+# A targeted apply does not save outputs, so read the record from the certificate itself:
+terraform state show 'module.web[0].aws_acm_certificate.site[0]' | Select-String resource_record
+```
+
+### 4b. Prove the domain to ACM
+
+GoDaddy → **My Products → chimborrio.shop → DNS → Add New Record**:
+
+| Field | Value |
+|---|---|
+| Type | `CNAME` |
+| Name | `resource_record_name` **without** `.chimborrio.shop.` at the end (e.g. `_3f2a….finance`): GoDaddy appends the domain itself |
+| Value | `resource_record_value` (`_….acm-validations.aws.`) |
+| TTL | default (1 hour) |
+
+Keep this record for good: ACM renews the certificate every year using the same record. Check it is
+live (it can take a few minutes):
+
+```powershell
+nslookup -type=CNAME <resource_record_name> 1.1.1.1
+```
+
+### 4c. Everything else
+
+```powershell
+terraform plan     # read it
+terraform apply    # waits for the certificate (minutes once 4b's record is live), then CloudFront (~5 minutes)
 terraform output
 cd ../../..
 ```
+
+### 4d. Point the subdomain at CloudFront
+
+One more GoDaddy record: type `CNAME`, name `finance`, value `dashboard_dns_records.dashboard.value`
+(`d….cloudfront.net`), TTL default.
 
 What it creates:
 
@@ -62,7 +104,7 @@ What it creates:
 |---|---|---|
 | `budget` | Monthly budget, emails above $1 actual or forecast | $0 |
 | `github` | GitHub OIDC provider, read-only `finance-github-plan` role for CI | $0 |
-| `web` | Private bucket (versioned, old versions expire after 30 days), CloudFront with Origin Access Control and security headers, `finance-github-deploy-web` role | ~$0 |
+| `web` | Private bucket (versioned, old versions expire after 30 days), CloudFront with Origin Access Control and security headers, ACM certificate for `dashboard_domain` (us-east-1), `finance-github-deploy-web` role | ~$0 |
 
 It also creates the security baseline (CloudTrail and email alerts, see
 [phase-0.md](phase-0.md#5-free-tier-stack-and-dashboard-cd)). Confirm the SNS subscription email it
@@ -84,17 +126,25 @@ identifiers, not credentials, so they are variables, not secrets.
 | `WEB_DISTRIBUTION_ID` | `github_variables.WEB_DISTRIBUTION_ID` |
 | `AWS_PLAN_ROLE_ARN` | `github_variables.AWS_PLAN_ROLE_ARN` (enables `terraform plan` in CI) |
 | `ALERT_EMAIL` | the same email as in `terraform.tfvars` (CI's plan needs it) |
+| `VITE_API_URL` | `github_variables.VITE_API_URL` (cloud-api's Function URL) |
+| `VITE_COGNITO_DOMAIN` | `github_variables.VITE_COGNITO_DOMAIN` |
+| `VITE_COGNITO_CLIENT_ID` | `github_variables.VITE_COGNITO_CLIENT_ID` |
+
+Without the three `VITE_` variables `deploy-dashboard` fails instead of shipping a build on demo
+data.
 
 ## 6. First deploy
 
 Push the commit from step 3, or **Actions → deploy-dashboard → Run workflow** on `main`. After a
-couple of minutes, open `terraform output dashboard_url`. You should see the dashboard with the
-**Demo data** badge.
+couple of minutes, open `terraform output dashboard_url` (`https://finance.chimborrio.shop`). It
+sends you to the Cognito sign-in page and back. The page calls only cloud-api and Cognito: the CSP's
+`connect-src` lists exactly those two. Sign-in only works from `dashboard_domain` and localhost, not
+from the `*.cloudfront.net` address.
 
 Checks:
 
 ```powershell
-curl.exe -sI https://<your-id>.cloudfront.net/ | Select-String "content-security|strict-transport|x-frame"
+curl.exe -sI https://finance.chimborrio.shop/ | Select-String "content-security|strict-transport|x-frame"
 curl.exe -sI https://<bucket>.s3.eu-west-3.amazonaws.com/index.html   # 403: the bucket is private
 ```
 
@@ -105,7 +155,7 @@ From then on every push to `main` that changes `frontend/cloud-dashboard/` deplo
 - **Roll back:** Actions → deploy-dashboard → open an older successful run → **Re-run all jobs**. It
   rebuilds and deploys that run's commit.
 - **Cost:** expected $0. The budget emails you if the month goes above $1.
-- **Who can see it:** anyone with the URL. Fine for demo data; Cognito login comes before any real
-  data or the real API.
+- **Who can see it:** anyone with the URL gets the page itself (the build, no data). Every API call
+  needs a Cognito sign-in with MFA.
 - **Tear down:** `terraform destroy` in `infra/terraform/envs/prod`, then delete the five GitHub
   variables.

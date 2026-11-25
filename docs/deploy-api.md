@@ -1,9 +1,8 @@
 # Deploying the API (and running the dashboard against it)
 
-Everything except the dashboard hosting lives in AWS: the ledger table, Cognito sign-in and
-`cloud-api` on Lambda behind a Function URL. The dashboard runs on your machine
-(`http://localhost:5173`) until AWS enables CloudFront for the account; then `enable_web = true`
-moves it to CloudFront too.
+The ledger table, Cognito sign-in and `cloud-api` on Lambda behind a Function URL. The dashboard is
+served from CloudFront ([deploy-dashboard.md](deploy-dashboard.md)) and can also run on your machine
+(`http://localhost:5173`) against the same API.
 
 All commands are PowerShell, run from the repository root unless a `cd` says otherwise.
 
@@ -25,8 +24,9 @@ terraform apply prod.tfplan
 
 Read the plan before applying. With `cloud_api_image_digest` still empty it creates the DynamoDB
 table, the Cognito user pool, domain and app client, the ECR repository, the log group and the
-function's IAM role, but no function yet. If an earlier, failed apply left pieces of the web module
-(S3 bucket, deploy role), the plan destroys them, since `enable_web` is false; they come back later.
+function's IAM role, but no function yet. It also creates the dashboard hosting unless
+`enable_web = false` is in `terraform.tfvars` (needed while AWS has not verified the account for
+CloudFront).
 
 ## 2. Your user
 

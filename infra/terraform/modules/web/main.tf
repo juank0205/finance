@@ -1,13 +1,40 @@
-# Dashboard hosting: a private S3 bucket that only CloudFront can read, served over HTTPS at the free
-# *.cloudfront.net address, plus the role GitHub Actions assumes to deploy new builds.
-# Cost: ~$0 (CloudFront always-free tier: 1 TB and 10M requests/month; S3 holds ~1 MB).
+# Dashboard hosting: a private S3 bucket that only CloudFront can read, served over HTTPS at
+# domain_name (or the free *.cloudfront.net address without one), plus the role GitHub Actions
+# assumes to deploy new builds.
+# Cost: ~$0 (CloudFront always-free tier: 1 TB and 10M requests/month; S3 holds ~1 MB; public ACM
+# certificates are free). DNS stays at the registrar: no Route 53.
 
 data "aws_caller_identity" "current" {}
 data "aws_partition" "current" {}
 
 locals {
-  account_id = data.aws_caller_identity.current.account_id
-  partition  = data.aws_partition.current.partition
+  account_id    = data.aws_caller_identity.current.account_id
+  partition     = data.aws_partition.current.partition
+  custom_domain = var.domain_name != ""
+}
+
+# --- Certificate ----------------------------------------------------------------------------------
+
+# CloudFront only uses certificates from us-east-1. ACM proves the domain is ours with a CNAME record
+# added at the registrar (output certificate_validation); keep that record, renewals reuse it.
+resource "aws_acm_certificate" "site" {
+  count             = local.custom_domain ? 1 : 0
+  provider          = aws.us_east_1
+  domain_name       = var.domain_name
+  validation_method = "DNS"
+  key_algorithm     = "EC_prime256v1"
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+# Waits until ACM sees the validation record and issues the certificate (minutes once the record
+# exists). Apply the certificate alone first, add the record, then apply the rest.
+resource "aws_acm_certificate_validation" "site" {
+  count           = local.custom_domain ? 1 : 0
+  provider        = aws.us_east_1
+  certificate_arn = aws_acm_certificate.site[0].arn
 }
 
 # --- Bucket ---------------------------------------------------------------------------------------
@@ -125,14 +152,14 @@ resource "aws_cloudfront_response_headers_policy" "security" {
   security_headers_config {
     content_security_policy {
       # React sets a few inline style attributes (bar widths, colors), hence style-src-attr.
-      # connect-src 'self': the API will be served from this same domain under /api.
+      # connect-src: the page may only call cloud-api and Cognito's token endpoint (connect_src).
       content_security_policy = join("; ", [
         "default-src 'self'",
         "script-src 'self'",
         "style-src 'self'",
         "style-src-attr 'unsafe-inline'",
         "img-src 'self' data:",
-        "connect-src 'self'",
+        join(" ", concat(["connect-src 'self'"], var.connect_src)),
         "object-src 'none'",
         "base-uri 'none'",
         "form-action 'self'",
@@ -202,9 +229,14 @@ resource "aws_cloudfront_distribution" "site" {
     }
   }
 
-  # The free *.cloudfront.net certificate. A custom domain would need Route 53 ($0.50/month) + ACM.
+  aliases = local.custom_domain ? [var.domain_name] : []
+
+  # The domain's ACM certificate (SNI, TLS 1.2+), or the free *.cloudfront.net one without a domain.
   viewer_certificate {
-    cloudfront_default_certificate = true
+    cloudfront_default_certificate = !local.custom_domain
+    acm_certificate_arn            = local.custom_domain ? aws_acm_certificate_validation.site[0].certificate_arn : null
+    ssl_support_method             = local.custom_domain ? "sni-only" : null
+    minimum_protocol_version       = local.custom_domain ? "TLSv1.2_2021" : "TLSv1"
   }
 }
 

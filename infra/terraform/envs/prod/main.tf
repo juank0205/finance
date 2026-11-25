@@ -25,6 +25,11 @@ provider "aws" {
 
 locals {
   name = "finance"
+  # Where the dashboard may sign in from and call the API: the domain once hosting is on, plus local runs.
+  dashboard_origins = concat(
+    var.enable_web && var.dashboard_domain != "" ? ["https://${var.dashboard_domain}"] : [],
+    var.dashboard_origins,
+  )
 }
 
 # Uncomment each module as its phase is built. Everything enabled here stays inside the free tier.
@@ -41,15 +46,24 @@ module "github" {
   github_repo = var.github_repo
 }
 
-# Dashboard hosting (S3 + CloudFront). Off until AWS verifies the account for CloudFront (open
-# Support case); until then the dashboard runs locally against the real API (see
-# frontend/cloud-dashboard/README.md). Turn on with enable_web = true in terraform.tfvars.
+# Dashboard hosting (S3 + CloudFront). Needs an account AWS has verified for CloudFront; without it
+# the dashboard runs locally against the real API (see frontend/cloud-dashboard/README.md).
 module "web" {
   source                   = "../../modules/web"
   count                    = var.enable_web ? 1 : 0
   name                     = local.name
   github_repo              = var.github_repo
   github_oidc_provider_arn = module.github.oidc_provider_arn
+  domain_name              = var.dashboard_domain
+  providers = {
+    aws           = aws
+    aws.us_east_1 = aws.us_east_1
+  }
+  # The CSP lets the page call exactly these: cloud-api's Function URL and Cognito's token endpoint.
+  connect_src = concat(
+    module.api.url == null ? [] : [trimsuffix(module.api.url, "/")],
+    [module.auth.hosted_ui_url],
+  )
 }
 
 # CloudTrail, root-activity and sensitive-change alerts, account hardening. ~$0.10/month (CloudTrail's
@@ -79,7 +93,7 @@ module "data" {
 module "auth" {
   source        = "../../modules/auth"
   name          = local.name
-  callback_urls = [for o in var.dashboard_origins : "${o}/"]
+  callback_urls = [for o in local.dashboard_origins : "${o}/"]
 }
 
 # cloud-api on Lambda behind a public Function URL that checks Cognito tokens. $0 inside Lambda's
@@ -92,7 +106,7 @@ module "api" {
   table_arn         = module.data.table_arn
   cognito_issuer    = module.auth.issuer
   cognito_client_id = module.auth.client_id
-  allowed_origins   = var.dashboard_origins
+  allowed_origins   = local.dashboard_origins
 
   github_repo              = var.github_repo
   github_oidc_provider_arn = module.github.oidc_provider_arn
@@ -124,8 +138,20 @@ output "dashboard_url" {
   value = one(module.web[*].url)
 }
 
+# The two CNAME records to add at the registrar (GoDaddy's Name field takes the part before the
+# domain). The certificate's appears after the first, certificate-only apply.
+output "dashboard_dns_records" {
+  value = var.enable_web && var.dashboard_domain != "" ? {
+    certificate = one(module.web[*].certificate_validation)
+    dashboard = {
+      name  = var.dashboard_domain
+      value = one(module.web[*].cloudfront_domain)
+    }
+  } : null
+}
+
 # The values to set as GitHub repository variables (none of them is a secret). The web ones are
-# null while enable_web is false.
+# null while enable_web is false; the VITE_ ones are what deploy-dashboard builds the dashboard with.
 output "github_variables" {
   value = {
     AWS_PLAN_ROLE_ARN       = module.github.plan_role_arn
@@ -133,5 +159,8 @@ output "github_variables" {
     AWS_DEPLOY_ROLE_ARN     = one(module.web[*].deploy_role_arn)
     WEB_BUCKET              = one(module.web[*].bucket)
     WEB_DISTRIBUTION_ID     = one(module.web[*].distribution_id)
+    VITE_API_URL            = module.api.url
+    VITE_COGNITO_DOMAIN     = module.auth.hosted_ui_url
+    VITE_COGNITO_CLIENT_ID  = module.auth.client_id
   }
 }
