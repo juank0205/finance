@@ -42,8 +42,10 @@ Back up `infra/terraform/bootstrap/terraform.tfstate` somewhere private (it is g
    the repo is private.)
 2. Copy `infra/terraform/envs/prod/terraform.tfvars.example` to `terraform.tfvars` (git-ignored) and
    set `alert_email`.
-3. `github_repo` defaults to `juank0205/finance`. If the repo has another name, add
-   `github_repo = "owner/name"` to `terraform.tfvars`: the deploy role trusts only that repo.
+3. `github_repo` defaults to `juank0205@58149552/finance@1431573979`: the repo the way GitHub's OIDC
+   token names it, with the owner's and the repo's numeric IDs, which survive renames and cannot be
+   reused by another repo. For another repo, put its own in `terraform.tfvars`; the IDs come from
+   `gh api repos/OWNER/NAME --jq '"\(.owner.id) \(.id)"'`. The CI roles trust only that repo.
 
 ## 4. Create the hosting and the GitHub roles
 

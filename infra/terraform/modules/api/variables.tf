@@ -45,7 +45,7 @@ variable "reserved_concurrency" {
 }
 
 variable "github_repo" {
-  description = "owner/repo whose main branch may deploy cloud-api"
+  description = "The repo as GitHub's OIDC subject names it: owner@owner_id/name@repo_id"
   type        = string
 }
 

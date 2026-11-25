@@ -4,6 +4,6 @@ variable "name" {
 }
 
 variable "github_repo" {
-  description = "owner/repo allowed to assume the CI roles"
+  description = "The repo as GitHub's OIDC subject names it: owner@owner_id/name@repo_id"
   type        = string
 }
