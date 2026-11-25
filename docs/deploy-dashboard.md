@@ -62,7 +62,8 @@ two CNAME records are added there by hand. (Set `dashboard_domain = ""` to use t
 cd infra/terraform/envs/prod
 terraform init
 terraform apply -target='module.web[0].aws_acm_certificate.site[0]'   # 1 to add
-terraform output dashboard_dns_records
+# A targeted apply does not save outputs, so read the record from the certificate itself:
+terraform state show 'module.web[0].aws_acm_certificate.site[0]' | Select-String resource_record
 ```
 
 ### 4b. Prove the domain to ACM
@@ -72,15 +73,15 @@ GoDaddy → **My Products → chimborrio.shop → DNS → Add New Record**:
 | Field | Value |
 |---|---|
 | Type | `CNAME` |
-| Name | `dashboard_dns_records.certificate.name` **without** `.chimborrio.shop.` at the end (e.g. `_3f2a….finance`): GoDaddy appends the domain itself |
-| Value | `dashboard_dns_records.certificate.value` (`_….acm-validations.aws.`) |
+| Name | `resource_record_name` **without** `.chimborrio.shop.` at the end (e.g. `_3f2a….finance`): GoDaddy appends the domain itself |
+| Value | `resource_record_value` (`_….acm-validations.aws.`) |
 | TTL | default (1 hour) |
 
 Keep this record for good: ACM renews the certificate every year using the same record. Check it is
 live (it can take a few minutes):
 
 ```powershell
-nslookup -type=CNAME <certificate.name> 1.1.1.1
+nslookup -type=CNAME <resource_record_name> 1.1.1.1
 ```
 
 ### 4c. Everything else
