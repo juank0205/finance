@@ -9,14 +9,19 @@
 # CloudWatch Logs' 5 GB. ECR storage is $0.10/GB-month past its 12-month free tier: the ~10 MB
 # images kept here come to about $0.003/month.
 #
-# Deploying is two steps: push an image to the repository, then apply with its digest
-# (cloud_api_image_digest). Until a digest is set only the repository exists. See docs/deploy-api.md.
+# The first deploy is two steps: push an image to the repository, then apply with its digest
+# (cloud_api_image_digest). Until a digest is set only the repository exists. After that, CI deploys
+# every change on main (the deploy role below) and Terraform no longer tracks the image. See
+# docs/deploy-api.md.
 
 data "aws_partition" "current" {}
+data "aws_caller_identity" "current" {}
+data "aws_region" "current" {}
 
 locals {
   partition     = data.aws_partition.current.partition
   function_name = "${var.name}-cloud-api"
+  function_arn  = "arn:${local.partition}:lambda:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:function:${local.function_name}"
   deploy        = var.image_digest != ""
 }
 
@@ -120,6 +125,12 @@ resource "aws_lambda_function" "cloud_api" {
   }
 
   depends_on = [aws_iam_role_policy.cloud_api]
+
+  # CI moves the function to each new image (aws lambda update-function-code). image_digest only
+  # picks the image the function is created with, so an apply never rolls back what CI deployed.
+  lifecycle {
+    ignore_changes = [image_uri]
+  }
 }
 
 resource "aws_lambda_function_url" "cloud_api" {
@@ -153,4 +164,74 @@ resource "aws_lambda_permission" "url_invoke" {
   function_name            = aws_lambda_function.cloud_api[0].function_name
   principal                = "*"
   invoked_via_function_url = true
+}
+
+# --- Deploy role for GitHub Actions ---------------------------------------------------------------
+
+data "aws_iam_policy_document" "deploy_trust" {
+  statement {
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+    principals {
+      type        = "Federated"
+      identifiers = [var.github_oidc_provider_arn]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:aud"
+      values   = ["sts.amazonaws.com"]
+    }
+    # Only workflows running on main may deploy; pull requests and other branches may not.
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:sub"
+      values   = ["repo:${var.github_repo}:ref:refs/heads/main"]
+    }
+  }
+}
+
+resource "aws_iam_role" "deploy" {
+  name                 = "${var.name}-github-deploy-api"
+  assume_role_policy   = data.aws_iam_policy_document.deploy_trust.json
+  max_session_duration = 3600
+}
+
+# Push to this one repository and move this one function to a new image. It cannot change the
+# function's role, settings or URL, and cannot touch the table.
+data "aws_iam_policy_document" "deploy" {
+  statement {
+    sid       = "EcrLogin"
+    actions   = ["ecr:GetAuthorizationToken"]
+    resources = ["*"] # the action has no resource-level permissions
+  }
+  statement {
+    sid = "PushImage"
+    actions = [
+      "ecr:BatchCheckLayerAvailability",
+      "ecr:InitiateLayerUpload",
+      "ecr:UploadLayerPart",
+      "ecr:CompleteLayerUpload",
+      "ecr:PutImage",
+      "ecr:DescribeImages",
+      # Lambda pulls the image with the caller's permissions when the code is updated.
+      "ecr:BatchGetImage",
+      "ecr:GetDownloadUrlForLayer",
+    ]
+    resources = [aws_ecr_repository.cloud_api.arn]
+  }
+  statement {
+    sid = "UpdateFunction"
+    actions = [
+      "lambda:UpdateFunctionCode",
+      "lambda:GetFunction",
+      "lambda:GetFunctionConfiguration",
+      "lambda:GetFunctionUrlConfig",
+    ]
+    resources = [local.function_arn]
+  }
+}
+
+resource "aws_iam_role_policy" "deploy" {
+  name   = "deploy-cloud-api"
+  role   = aws_iam_role.deploy.id
+  policy = data.aws_iam_policy_document.deploy.json
 }
