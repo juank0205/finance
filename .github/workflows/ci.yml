@@ -93,3 +93,77 @@ jobs:
       - run: terraform plan -input=false -lock=false
         env:
           TF_VAR_alert_email: ${{ vars.ALERT_EMAIL }}
+
+  # Ships cloud-api to Lambda after the backend job passes on main. Skipped on pull requests and until
+  # the repo variable AWS_API_DEPLOY_ROLE_ARN is set. The role can only push to the cloud-api image
+  # repository and move the function to a new image (infra/terraform/modules/api).
+  deploy-api:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AWS_API_DEPLOY_ROLE_ARN != ''
+    needs: backend
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # lets the job request the OIDC token AWS trusts
+    concurrency:
+      group: deploy-api
+      cancel-in-progress: false
+    env:
+      AWS_REGION: eu-west-3
+      REPOSITORY: finance/cloud-api
+      FUNCTION: finance-cloud-api
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_API_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      # The docker-container builder can build arm64 on this amd64 runner: Go cross-compiles in the
+      # build stage and the final stage only copies files, so no emulation is needed.
+      - uses: docker/setup-buildx-action@v3
+
+      # The tag is the git hash of backend/, so a push that does not change the backend reuses the
+      # image already in the repository (tags are immutable) instead of building a new one.
+      - name: Build and push the image
+        id: image
+        run: |
+          tag=$(git rev-parse HEAD:backend)
+          if ! aws ecr describe-images --repository-name "$REPOSITORY" --image-ids imageTag="$tag" >/dev/null 2>&1; then
+            registry="$(aws sts get-caller-identity --query Account --output text).dkr.ecr.$AWS_REGION.amazonaws.com"
+            aws ecr get-login-password | docker login --username AWS --password-stdin "$registry"
+            # --provenance/--sbom off: Lambda rejects the multi-manifest index buildx creates otherwise.
+            docker buildx build --platform linux/arm64 --target lambda --build-arg CMD=cloud-api \
+              --provenance=false --sbom=false -t "$registry/$REPOSITORY:$tag" --push .
+          fi
+          uri=$(aws ecr describe-images --repository-name "$REPOSITORY" --image-ids imageTag="$tag" \
+            --query 'imageDetails[0].[registryId,imageDigest]' --output text |
+            awk -v r="$AWS_REGION" -v repo="$REPOSITORY" '{print $1 ".dkr.ecr." r ".amazonaws.com/" repo "@" $2}')
+          echo "uri=$uri" >> "$GITHUB_OUTPUT"
+
+      # If the new image does not answer like the old one did, the function goes back to the old one
+      # and the job fails.
+      - name: Deploy and check
+        env:
+          NEW: ${{ steps.image.outputs.uri }}
+        run: |
+          old=$(aws lambda get-function --function-name "$FUNCTION" --query Code.ImageUri --output text)
+          if [ "$old" = "$NEW" ]; then
+            echo "Already running $NEW"
+            exit 0
+          fi
+          deploy() {
+            aws lambda update-function-code --function-name "$FUNCTION" --image-uri "$1" >/dev/null
+            aws lambda wait function-updated-v2 --function-name "$FUNCTION"
+          }
+          deploy "$NEW"
+          url=$(aws lambda get-function-url-config --function-name "$FUNCTION" --query FunctionUrl --output text)
+          health=$(curl -s -o /dev/null -w '%{http_code}' --retry 3 "${url}healthz")
+          guarded=$(curl -s -o /dev/null -w '%{http_code}' "${url}v1/summary")
+          if [ "$health" != 200 ] || [ "$guarded" != 401 ]; then
+            echo "::error::healthz answered $health (want 200), /v1/summary without a token $guarded (want 401). Rolling back to $old"
+            deploy "$old"
+            exit 1
+          fi
+          echo "Deployed $NEW (was $old)"

@@ -110,8 +110,41 @@ Use `localhost`, not `127.0.0.1`: sign-in and CORS only accept the origins in `d
 
 ## Updating the API
 
-Repeat steps 3 and 4 with the new digest. The repository keeps the last three images, so a rollback
-is applying an older digest.
+CI deploys it: every push to `main` runs the `deploy-api` job in `ci` once the `backend` job passes.
+It builds the image (tagged with the git hash of `backend/`, so pushes that leave the backend alone
+reuse the existing image), pushes it, moves the function to it and checks that `/healthz` answers
+200 and `/v1/summary` without a token 401. If either check fails, the function goes back to the
+previous image and the job fails.
+
+The digest in `terraform.tfvars` only picks the image the function is created with. Terraform
+ignores the image afterwards, so `terraform apply` never undoes a CI deploy.
+
+### Turning it on (once)
+
+1. Create the deploy role. It can only push to `finance/cloud-api` and point `finance-cloud-api` at
+   a new image, and only workflows on `main` can assume it.
+
+   ```powershell
+   cd infra/terraform/envs/prod
+   terraform plan -out prod.tfplan     # expect: 2 to add (finance-github-deploy-api + its policy)
+   terraform apply prod.tfplan
+   terraform output github_variables   # AWS_API_DEPLOY_ROLE_ARN
+   ```
+
+2. GitHub → the repo → **Settings → Secrets and variables → Actions → Variables** → **New
+   repository variable**: `AWS_API_DEPLOY_ROLE_ARN` = the value above. It is not a secret.
+
+### Rolling back
+
+Revert the commit on `main`; CI deploys the previous code. In a hurry, from your machine (the
+repository keeps the last three images):
+
+```powershell
+aws ecr describe-images --repository-name finance/cloud-api --query "imageDetails[].[imagePushedAt,imageDigest]" --output table
+aws lambda update-function-code --function-name finance-cloud-api --image-uri "<repository>@sha256:..."
+```
+
+The next push to `main` deploys `main` again.
 
 ## What protects it
 
@@ -120,6 +153,8 @@ is applying an older digest.
   Cognito settings, so a missing variable cannot open the ledger. Only `/healthz` answers without one.
 - The pool has no self sign-up and requires TOTP MFA.
 - The function's role can only read and write items in the ledger table and write its own logs.
+- CI's deploy role (`finance-github-deploy-api`) can push images and change the function's code, not
+  its role, settings or URL. Its trust policy only accepts workflows running on `main`.
 - CORS lets only the local dashboard origins call it from a browser. CORS does not stop scripts or
   curl; the token check does.
 - There is no rate limit in front of the function. Lambda's always-free allowance (1M requests a month)

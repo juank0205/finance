@@ -93,6 +93,9 @@ module "api" {
   cognito_issuer    = module.auth.issuer
   cognito_client_id = module.auth.client_id
   allowed_origins   = var.dashboard_origins
+
+  github_repo              = var.github_repo
+  github_oidc_provider_arn = module.github.oidc_provider_arn
 }
 
 moved {
@@ -121,13 +124,14 @@ output "dashboard_url" {
   value = one(module.web[*].url)
 }
 
-# The four values to set as GitHub repository variables (none of them is a secret). The web ones are
+# The values to set as GitHub repository variables (none of them is a secret). The web ones are
 # null while enable_web is false.
 output "github_variables" {
   value = {
-    AWS_PLAN_ROLE_ARN   = module.github.plan_role_arn
-    AWS_DEPLOY_ROLE_ARN = one(module.web[*].deploy_role_arn)
-    WEB_BUCKET          = one(module.web[*].bucket)
-    WEB_DISTRIBUTION_ID = one(module.web[*].distribution_id)
+    AWS_PLAN_ROLE_ARN       = module.github.plan_role_arn
+    AWS_API_DEPLOY_ROLE_ARN = module.api.deploy_role_arn
+    AWS_DEPLOY_ROLE_ARN     = one(module.web[*].deploy_role_arn)
+    WEB_BUCKET              = one(module.web[*].bucket)
+    WEB_DISTRIBUTION_ID     = one(module.web[*].distribution_id)
   }
 }
