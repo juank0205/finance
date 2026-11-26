@@ -22,18 +22,30 @@ export const api: Promise<Api> = baseUrl
 
 type Method = 'GET' | 'POST' | 'PUT' | 'DELETE'
 
+// Hex SHA-256 of a request body. CloudFront signs requests to the Lambda Function URL with SigV4
+// (Origin Access Control) but does not hash bodies itself, so a POST or PUT must bring the hash in
+// x-amz-content-sha256 or Lambda refuses it.
+async function sha256Hex(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('')
+}
+
 function httpApi(base: string): Api {
   async function call<T>(method: Method, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
-    // base may be relative ("/" = same origin as the page) or a full URL.
-    const res = await fetch(new URL(path, new URL(base, window.location.origin)), {
+    // base may be relative ("/api/" = this origin under /api) or a full URL; path is joined below it.
+    const root = new URL(base.endsWith('/') ? base : `${base}/`, window.location.origin)
+    const url = new URL(path.replace(/^\//, ''), root)
+    const payload = body ? JSON.stringify(body) : undefined
+    const res = await fetch(url, {
       method,
       signal,
       headers: {
         Accept: 'application/json',
-        ...(body ? { 'Content-Type': 'application/json' } : {}),
-        ...(authEnabled ? { Authorization: `Bearer ${await accessToken()}` } : {}),
+        ...(payload ? { 'Content-Type': 'application/json', 'x-amz-content-sha256': await sha256Hex(payload) } : {}),
+        // Not Authorization: CloudFront's SigV4 signature for Lambda goes there.
+        ...(authEnabled ? { 'X-Finance-Token': await accessToken() } : {}),
       },
-      body: body ? JSON.stringify(body) : undefined,
+      body: payload,
     })
     // The token was revoked or the pool changed: sign in again.
     if (res.status === 401 && authEnabled) return signIn()

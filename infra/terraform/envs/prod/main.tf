@@ -59,11 +59,10 @@ module "web" {
     aws           = aws
     aws.us_east_1 = aws.us_east_1
   }
-  # The CSP lets the page call exactly these: cloud-api's Function URL and Cognito's token endpoint.
-  connect_src = concat(
-    module.api.url == null ? [] : [trimsuffix(module.api.url, "/")],
-    [module.auth.hosted_ui_url],
-  )
+  # cloud-api at /api/*, so the page calls its own origin and, for sign-in, Cognito (the CSP).
+  api_function_name = module.api.url == null ? "" : module.api.function_name
+  api_function_url  = module.api.url == null ? "" : module.api.url
+  connect_src       = [module.auth.hosted_ui_url]
 }
 
 # CloudTrail, root-activity and sensitive-change alerts, account hardening. ~$0.10/month (CloudTrail's
@@ -106,7 +105,6 @@ module "api" {
   table_arn         = module.data.table_arn
   cognito_issuer    = module.auth.issuer
   cognito_client_id = module.auth.client_id
-  allowed_origins   = local.dashboard_origins
 
   github_repo              = var.github_repo
   github_oidc_provider_arn = module.github.oidc_provider_arn
@@ -120,7 +118,7 @@ moved {
 # What the dashboard needs in frontend/cloud-dashboard/.env.local (none of it is a secret).
 output "dashboard_env" {
   value = {
-    VITE_API_URL           = module.api.url
+    VITE_API_URL           = "/api/"
     VITE_COGNITO_DOMAIN    = module.auth.hosted_ui_url
     VITE_COGNITO_CLIENT_ID = module.auth.client_id
   }
@@ -151,7 +149,7 @@ output "dashboard_dns_records" {
 }
 
 # The values to set as GitHub repository variables (none of them is a secret). The web ones are
-# null while enable_web is false; the VITE_ ones are what deploy-dashboard builds the dashboard with.
+# null while enable_web is false; deploy-dashboard builds the dashboard with the VITE_ ones.
 output "github_variables" {
   value = {
     AWS_PLAN_ROLE_ARN       = module.github.plan_role_arn
@@ -159,7 +157,6 @@ output "github_variables" {
     AWS_DEPLOY_ROLE_ARN     = one(module.web[*].deploy_role_arn)
     WEB_BUCKET              = one(module.web[*].bucket)
     WEB_DISTRIBUTION_ID     = one(module.web[*].distribution_id)
-    VITE_API_URL            = module.api.url
     VITE_COGNITO_DOMAIN     = module.auth.hosted_ui_url
     VITE_COGNITO_CLIENT_ID  = module.auth.client_id
   }

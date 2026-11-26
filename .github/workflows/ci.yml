@@ -111,6 +111,7 @@ jobs:
       AWS_REGION: eu-west-3
       REPOSITORY: finance/cloud-api
       FUNCTION: finance-cloud-api
+      API_URL: https://finance.chimborrio.shop/api/ # through CloudFront, the only allowed caller
     defaults:
       run:
         working-directory: backend
@@ -133,6 +134,9 @@ jobs:
           if ! aws ecr describe-images --repository-name "$REPOSITORY" --image-ids imageTag="$tag" >/dev/null 2>&1; then
             registry="$(aws sts get-caller-identity --query Account --output text).dkr.ecr.$AWS_REGION.amazonaws.com"
             aws ecr get-login-password | docker login --username AWS --password-stdin "$registry"
+            # Signed in, pulls of the Lambda adapter image are not limited by the runner's shared IP.
+            # ECR Public only issues tokens in us-east-1.
+            aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
             # --provenance/--sbom off: Lambda rejects the multi-manifest index buildx creates otherwise.
             docker buildx build --platform linux/arm64 --target lambda --build-arg CMD=cloud-api \
               --provenance=false --sbom=false -t "$registry/$REPOSITORY:$tag" --push .
@@ -143,7 +147,8 @@ jobs:
           echo "uri=$uri" >> "$GITHUB_OUTPUT"
 
       # If the new image does not answer like the old one did, the function goes back to the old one
-      # and the job fails.
+      # and the job fails. The Function URL itself must refuse unsigned requests (403): only
+      # CloudFront may call it.
       - name: Deploy and check
         env:
           NEW: ${{ steps.image.outputs.uri }}
@@ -158,11 +163,12 @@ jobs:
             aws lambda wait function-updated-v2 --function-name "$FUNCTION"
           }
           deploy "$NEW"
-          url=$(aws lambda get-function-url-config --function-name "$FUNCTION" --query FunctionUrl --output text)
-          health=$(curl -s -o /dev/null -w '%{http_code}' --retry 3 "${url}healthz")
-          guarded=$(curl -s -o /dev/null -w '%{http_code}' "${url}v1/summary")
-          if [ "$health" != 200 ] || [ "$guarded" != 401 ]; then
-            echo "::error::healthz answered $health (want 200), /v1/summary without a token $guarded (want 401). Rolling back to $old"
+          direct=$(aws lambda get-function-url-config --function-name "$FUNCTION" --query FunctionUrl --output text)
+          health=$(curl -s -o /dev/null -w '%{http_code}' --retry 3 "${API_URL}healthz")
+          guarded=$(curl -s -o /dev/null -w '%{http_code}' "${API_URL}v1/summary")
+          locked=$(curl -s -o /dev/null -w '%{http_code}' "${direct}healthz")
+          if [ "$health" != 200 ] || [ "$guarded" != 401 ] || [ "$locked" != 403 ]; then
+            echo "::error::healthz answered $health (want 200), /v1/summary without a token $guarded (want 401), the Function URL directly $locked (want 403). Rolling back to $old"
             deploy "$old"
             exit 1
           fi

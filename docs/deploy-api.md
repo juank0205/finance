@@ -1,8 +1,9 @@
 # Deploying the API (and running the dashboard against it)
 
-The ledger table, Cognito sign-in and `cloud-api` on Lambda behind a Function URL. The dashboard is
-served from CloudFront ([deploy-dashboard.md](deploy-dashboard.md)) and can also run on your machine
-(`http://localhost:5173`) against the same API.
+The ledger table, Cognito sign-in and `cloud-api` on Lambda behind a Function URL. The dashboard's
+CloudFront distribution ([deploy-dashboard.md](deploy-dashboard.md)) serves the API at
+`https://finance.chimborrio.shop/api/` and is the only caller the Function URL accepts. The dashboard
+can also run on your machine (`http://localhost:5173`) against the same API.
 
 All commands are PowerShell, run from the repository root unless a `cd` says otherwise.
 
@@ -89,24 +90,27 @@ terraform apply prod.tfplan
 terraform output dashboard_env
 ```
 
-Check it: without a token the API must refuse.
+Check it once the dashboard hosting exists: through CloudFront the API answers but wants a token,
+and the Function URL itself refuses everyone.
 
 ```powershell
-$url = (terraform output -json dashboard_env | ConvertFrom-Json).VITE_API_URL
-curl.exe -i "${url}healthz"         # 200 {"status":"ok"}
-curl.exe -i "${url}v1/summary"      # 401 {"error":"sign in required"}
+curl.exe -i https://finance.chimborrio.shop/api/healthz      # 200 {"status":"ok"}
+curl.exe -i https://finance.chimborrio.shop/api/v1/summary   # 401 {"error":"sign in required"}
+$url = aws lambda get-function-url-config --function-name finance-cloud-api --query FunctionUrl --output text
+curl.exe -i "${url}healthz"                                   # 403: not signed by CloudFront
 ```
 
 ## 5. The dashboard
 
-Copy the three `dashboard_env` values into `frontend/cloud-dashboard/.env.local`, then:
+Copy the three `dashboard_env` values into `frontend/cloud-dashboard/.env.local`, plus
+`VITE_API_PROXY=https://finance.chimborrio.shop` so the dev server forwards `/api` there, then:
 
 ```powershell
 cd frontend/cloud-dashboard
 npm run dev                         # http://localhost:5173
 ```
 
-Use `localhost`, not `127.0.0.1`: sign-in and CORS only accept the origins in `dashboard_origins`.
+Use `localhost`, not `127.0.0.1`: sign-in only returns to the origins in `dashboard_origins`.
 
 ## Updating the API
 
@@ -148,15 +152,21 @@ The next push to `main` deploys `main` again.
 
 ## What protects it
 
-- The Function URL is public, but every `/v1` request needs a Cognito access token for this pool and
-  this app client (`backend/internal/auth`). `cloud-api` refuses to start in Lambda without the
-  Cognito settings, so a missing variable cannot open the ledger. Only `/healthz` answers without one.
+- The Function URL only takes requests signed by the dashboard's CloudFront distribution (auth type
+  `AWS_IAM`, Origin Access Control, and Lambda permissions for that distribution only). Anything
+  else gets 403 before `cloud-api` runs, so it cannot be called, or billed, around CloudFront.
+- Every `/v1` request also needs a Cognito access token for this pool and this app client, in the
+  `X-Finance-Token` header (`backend/internal/auth`; `Authorization` carries CloudFront's
+  signature). `cloud-api` refuses to start in Lambda without the Cognito settings, so a missing
+  variable cannot open the ledger. Only `/healthz` answers without one.
 - The pool has no self sign-up and requires TOTP MFA.
 - The function's role can only read and write items in the ledger table and write its own logs.
 - CI's deploy role (`finance-github-deploy-api`) can push images and change the function's code, not
   its role, settings or URL. Its trust policy only accepts workflows running on `main`.
-- CORS lets only the local dashboard origins call it from a browser. CORS does not stop scripts or
-  curl; the token check does.
+- The page and the API share one origin, so there is no CORS to get wrong; the page's CSP allows
+  connections only to that origin and to Cognito.
+- POST and PUT bodies arrive with their SHA-256 in `x-amz-content-sha256` (the dashboard computes
+  it), which the signature covers: CloudFront signs requests but does not hash bodies itself.
 - There is no rate limit in front of the function. Lambda's always-free allowance (1M requests a month)
   plus the $5 budget alarm are the cost guard until reserved concurrency is possible
   ([security.md](security.md)).

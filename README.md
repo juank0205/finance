@@ -10,7 +10,7 @@ the cloud dashboard is where you view everything, add manual entries and manage 
 Android (Kotlin) ──mTLS──▶ Raspberry Pi (Docker Compose)  ──mTLS/MQTT──▶ AWS IoT Core ─▶ SQS ─▶ Lambda ─▶ DynamoDB + S3
                            caddy · ingest-api · parser                                                        │
                            uploader · postgres (outbox)        Browser ─▶ CloudFront ─▶ S3 dashboard           │
-                                                                        └▶ Function URL (Cognito) ─▶ Lambda ◀─┘
+                                                                           └ /api ─OAC▶ Function URL ─▶ Lambda ◀─┘
 ```
 
 See [docs/architecture.md](docs/architecture.md), [docs/security.md](docs/security.md),

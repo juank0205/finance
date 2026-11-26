@@ -34,7 +34,7 @@ jobs:
     env:
       BUCKET: ${{ vars.WEB_BUCKET }}
       DISTRIBUTION_ID: ${{ vars.WEB_DISTRIBUTION_ID }}
-      VITE_API_URL: ${{ vars.VITE_API_URL }}
+      VITE_API_URL: /api/ # cloud-api behind the same CloudFront distribution
       VITE_COGNITO_DOMAIN: ${{ vars.VITE_COGNITO_DOMAIN }}
       VITE_COGNITO_CLIENT_ID: ${{ vars.VITE_COGNITO_CLIENT_ID }}
     steps:
@@ -49,7 +49,7 @@ jobs:
       # Without these the build would quietly fall back to demo data and skip sign-in.
       - name: Check the build settings
         run: |
-          for v in VITE_API_URL VITE_COGNITO_DOMAIN VITE_COGNITO_CLIENT_ID; do
+          for v in VITE_COGNITO_DOMAIN VITE_COGNITO_CLIENT_ID; do
             [ -n "${!v}" ] || { echo "::error::repository variable $v is not set"; exit 1; }
           done
       - run: npm run build

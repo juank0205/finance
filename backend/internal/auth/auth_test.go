@@ -139,19 +139,21 @@ func TestMiddleware(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 
+	valid := p.sign(t, map[string]string{"alg": "RS256", "kid": "k1"}, p.claims(time.Now()))
 	for _, tc := range []struct {
-		name, auth string
-		want       int
+		name, header, value string
+		want                int
 	}{
-		{"no header", "", http.StatusUnauthorized},
-		{"basic", "Basic dXNlcjpwYXNz", http.StatusUnauthorized},
-		{"bad token", "Bearer x.y.z", http.StatusUnauthorized},
-		{"valid", "Bearer " + p.sign(t, map[string]string{"alg": "RS256", "kid": "k1"}, p.claims(time.Now())), http.StatusNoContent},
+		{"no header", "", "", http.StatusUnauthorized},
+		{"bad token", TokenHeader, "x.y.z", http.StatusUnauthorized},
+		{"valid", TokenHeader, valid, http.StatusNoContent},
+		// Authorization carries CloudFront's SigV4 signature; a token there does not count.
+		{"token in Authorization", "Authorization", "Bearer " + valid, http.StatusUnauthorized},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, "/v1/summary", nil)
-			if tc.auth != "" {
-				req.Header.Set("Authorization", tc.auth)
+			if tc.header != "" {
+				req.Header.Set(tc.header, tc.value)
 			}
 			rec := httptest.NewRecorder()
 			h.ServeHTTP(rec, req)

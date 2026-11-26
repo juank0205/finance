@@ -4,7 +4,7 @@ variable "name" {
 }
 
 variable "github_repo" {
-  description = "owner/repo whose main branch may deploy the dashboard"
+  description = "The repo as GitHub's OIDC subject names it: owner@owner_id/name@repo_id"
   type        = string
 }
 
@@ -14,13 +14,25 @@ variable "github_oidc_provider_arn" {
 }
 
 variable "connect_src" {
-  description = "Origins the dashboard may call besides its own (cloud-api, Cognito), for the CSP"
+  description = "Origins the dashboard may call besides its own (Cognito), for the CSP"
   type        = list(string)
   default     = []
 }
 
 variable "domain_name" {
   description = "Where the dashboard is served, e.g. finance.example.com; empty = the *.cloudfront.net address"
+  type        = string
+  default     = ""
+}
+
+variable "api_function_name" {
+  description = "cloud-api's function (modules/api), served at /api/*; empty = no API behind this distribution"
+  type        = string
+  default     = ""
+}
+
+variable "api_function_url" {
+  description = "cloud-api's Function URL (modules/api)"
   type        = string
   default     = ""
 }

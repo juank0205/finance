@@ -42,8 +42,10 @@ Back up `infra/terraform/bootstrap/terraform.tfstate` somewhere private (it is g
    the repo is private.)
 2. Copy `infra/terraform/envs/prod/terraform.tfvars.example` to `terraform.tfvars` (git-ignored) and
    set `alert_email`.
-3. `github_repo` defaults to `juank0205/finance`. If the repo has another name, add
-   `github_repo = "owner/name"` to `terraform.tfvars`: the deploy role trusts only that repo.
+3. `github_repo` defaults to `juank0205@58149552/finance@1431573979`: the repo the way GitHub's OIDC
+   token names it, with the owner's and the repo's numeric IDs, which survive renames and cannot be
+   reused by another repo. For another repo, put its own in `terraform.tfvars`; the IDs come from
+   `gh api repos/OWNER/NAME --jq '"\(.owner.id) \(.id)"'`. The CI roles trust only that repo.
 
 ## 4. Create the hosting and the GitHub roles
 
@@ -126,19 +128,18 @@ identifiers, not credentials, so they are variables, not secrets.
 | `WEB_DISTRIBUTION_ID` | `github_variables.WEB_DISTRIBUTION_ID` |
 | `AWS_PLAN_ROLE_ARN` | `github_variables.AWS_PLAN_ROLE_ARN` (enables `terraform plan` in CI) |
 | `ALERT_EMAIL` | the same email as in `terraform.tfvars` (CI's plan needs it) |
-| `VITE_API_URL` | `github_variables.VITE_API_URL` (cloud-api's Function URL) |
 | `VITE_COGNITO_DOMAIN` | `github_variables.VITE_COGNITO_DOMAIN` |
 | `VITE_COGNITO_CLIENT_ID` | `github_variables.VITE_COGNITO_CLIENT_ID` |
 
-Without the three `VITE_` variables `deploy-dashboard` fails instead of shipping a build on demo
-data.
+Without the two `VITE_` variables `deploy-dashboard` fails instead of shipping a build on demo
+data. The API needs no variable: the build always calls `/api/` on its own origin.
 
 ## 6. First deploy
 
 Push the commit from step 3, or **Actions → deploy-dashboard → Run workflow** on `main`. After a
 couple of minutes, open `terraform output dashboard_url` (`https://finance.chimborrio.shop`). It
-sends you to the Cognito sign-in page and back. The page calls only cloud-api and Cognito: the CSP's
-`connect-src` lists exactly those two. Sign-in only works from `dashboard_domain` and localhost, not
+sends you to the Cognito sign-in page and back. The page calls only its own origin (`/api` is
+cloud-api) and Cognito: the CSP's `connect-src` lists exactly those two. Sign-in only works from `dashboard_domain` and localhost, not
 from the `*.cloudfront.net` address.
 
 Checks:
