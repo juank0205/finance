@@ -33,7 +33,7 @@ variable "dashboard_domain" {
 }
 
 variable "dashboard_origins" {
-  description = "Other places the dashboard runs (no trailing slash), allowed to sign in and to call the API besides https://<dashboard_domain>"
+  description = "Other places the dashboard runs (no trailing slash), allowed to sign in besides https://<dashboard_domain>"
   type        = list(string)
   default     = ["http://localhost:5173", "http://localhost:4173"] # npm run dev, npm run preview
 }

@@ -59,7 +59,13 @@ func run() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", httpx.Health)
 	mux.Handle("/v1/", api)
-	return httpx.Run(httpx.Addr(), mux)
+
+	// CloudFront forwards https://<dashboard>/api/... unchanged, so the same routes also answer under
+	// /api. The bare ones stay for Lambda Web Adapter's readiness check and local runs.
+	root := http.NewServeMux()
+	root.Handle("/", mux)
+	root.Handle("/api/", http.StripPrefix("/api", mux))
+	return httpx.Run(httpx.Addr(), root)
 }
 
 // protect puts the Cognito token check in front of h. In Lambda it refuses to start without one, so

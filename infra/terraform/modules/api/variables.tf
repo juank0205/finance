@@ -33,11 +33,6 @@ variable "cognito_client_id" {
   type        = string
 }
 
-variable "allowed_origins" {
-  description = "Browser origins allowed to call the API (CORS)"
-  type        = list(string)
-}
-
 variable "reserved_concurrency" {
   description = "Cap on concurrent executions; null = no cap"
   type        = number

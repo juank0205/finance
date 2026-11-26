@@ -1,8 +1,10 @@
 // Package auth checks the Cognito access token on every API request.
 //
-// The dashboard signs in through the Cognito hosted page and sends the access token as
-// "Authorization: Bearer <jwt>". The check needs no network call per request: the token is an RS256
-// JWT signed with one of the user pool's public keys (its JWKS), fetched once and cached.
+// The dashboard signs in through the Cognito hosted page and sends the access token in the
+// X-Finance-Token header. Not in Authorization: CloudFront reaches the Lambda Function URL with
+// Origin Access Control, which signs every request with SigV4 and needs that header for itself.
+// The check needs no network call per request: the token is an RS256 JWT signed with one of the
+// user pool's public keys (its JWKS), fetched once and cached.
 //
 // The pool allows no self sign-up, so every valid token belongs to the owner of the ledger.
 package auth
@@ -58,11 +60,14 @@ func NewVerifier(issuer, clientID string) *Verifier {
 	}
 }
 
+// TokenHeader carries the Cognito access token, the bare JWT.
+const TokenHeader = "X-Finance-Token"
+
 // Middleware rejects requests without a valid access token with 401.
 func (v *Verifier) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if !ok || token == "" {
+		token := r.Header.Get(TokenHeader)
+		if token == "" {
 			unauthorized(w, "sign in required")
 			return
 		}

@@ -128,19 +128,18 @@ identifiers, not credentials, so they are variables, not secrets.
 | `WEB_DISTRIBUTION_ID` | `github_variables.WEB_DISTRIBUTION_ID` |
 | `AWS_PLAN_ROLE_ARN` | `github_variables.AWS_PLAN_ROLE_ARN` (enables `terraform plan` in CI) |
 | `ALERT_EMAIL` | the same email as in `terraform.tfvars` (CI's plan needs it) |
-| `VITE_API_URL` | `github_variables.VITE_API_URL` (cloud-api's Function URL) |
 | `VITE_COGNITO_DOMAIN` | `github_variables.VITE_COGNITO_DOMAIN` |
 | `VITE_COGNITO_CLIENT_ID` | `github_variables.VITE_COGNITO_CLIENT_ID` |
 
-Without the three `VITE_` variables `deploy-dashboard` fails instead of shipping a build on demo
-data.
+Without the two `VITE_` variables `deploy-dashboard` fails instead of shipping a build on demo
+data. The API needs no variable: the build always calls `/api/` on its own origin.
 
 ## 6. First deploy
 
 Push the commit from step 3, or **Actions → deploy-dashboard → Run workflow** on `main`. After a
 couple of minutes, open `terraform output dashboard_url` (`https://finance.chimborrio.shop`). It
-sends you to the Cognito sign-in page and back. The page calls only cloud-api and Cognito: the CSP's
-`connect-src` lists exactly those two. Sign-in only works from `dashboard_domain` and localhost, not
+sends you to the Cognito sign-in page and back. The page calls only its own origin (`/api` is
+cloud-api) and Cognito: the CSP's `connect-src` lists exactly those two. Sign-in only works from `dashboard_domain` and localhost, not
 from the `*.cloudfront.net` address.
 
 Checks:

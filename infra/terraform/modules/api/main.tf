@@ -1,9 +1,11 @@
 # cloud-api: the dashboard's API as one Lambda function (arm64 container image from ECR, Lambda Web
 # Adapter inside) reached through a Lambda Function URL.
 #
-# The Function URL is public (auth type NONE): it is how a browser reaches Lambda without API Gateway
-# or CloudFront. Every /v1 request must carry a Cognito access token, which cloud-api checks itself
-# and refuses to start without. CORS only lets the listed dashboard origins call it from a browser.
+# The Function URL takes only SigV4-signed requests (auth type AWS_IAM). The dashboard's CloudFront
+# distribution signs them with Origin Access Control and is the only caller allowed in
+# (modules/web), so the API is https://<dashboard>/api/ and anything sent straight to the Function
+# URL gets 403 before cloud-api runs. Every /v1 request must also carry a Cognito access token,
+# which cloud-api checks itself and refuses to start without.
 #
 # Cost: $0 inside Lambda's always-free allowance (1M requests and 400,000 GB-seconds a month) and
 # CloudWatch Logs' 5 GB. ECR storage is $0.10/GB-month past its 12-month free tier: the ~10 MB
@@ -136,34 +138,7 @@ resource "aws_lambda_function" "cloud_api" {
 resource "aws_lambda_function_url" "cloud_api" {
   count              = local.deploy ? 1 : 0
   function_name      = aws_lambda_function.cloud_api[0].function_name
-  authorization_type = "NONE"
-
-  cors {
-    allow_origins = var.allowed_origins
-    allow_methods = ["GET", "POST", "PUT", "DELETE"]
-    allow_headers = ["authorization", "content-type"]
-    max_age       = 300
-  }
-}
-
-# A public Function URL needs both statements. The second only allows invocations that arrive
-# through the URL, so nobody can call the function directly with their own AWS credentials.
-resource "aws_lambda_permission" "url" {
-  count                  = local.deploy ? 1 : 0
-  statement_id           = "FunctionUrlPublic"
-  action                 = "lambda:InvokeFunctionUrl"
-  function_name          = aws_lambda_function.cloud_api[0].function_name
-  principal              = "*"
-  function_url_auth_type = "NONE"
-}
-
-resource "aws_lambda_permission" "url_invoke" {
-  count                    = local.deploy ? 1 : 0
-  statement_id             = "FunctionUrlInvoke"
-  action                   = "lambda:InvokeFunction"
-  function_name            = aws_lambda_function.cloud_api[0].function_name
-  principal                = "*"
-  invoked_via_function_url = true
+  authorization_type = "AWS_IAM"
 }
 
 # --- Deploy role for GitHub Actions ---------------------------------------------------------------

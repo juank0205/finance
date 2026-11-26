@@ -1,6 +1,7 @@
 # Dashboard hosting: a private S3 bucket that only CloudFront can read, served over HTTPS at
 # domain_name (or the free *.cloudfront.net address without one), plus the role GitHub Actions
-# assumes to deploy new builds.
+# assumes to deploy new builds. /api/* goes to cloud-api's Lambda Function URL, which only this
+# distribution may call: the page and its API share one origin, so the browser needs no CORS.
 # Cost: ~$0 (CloudFront always-free tier: 1 TB and 10M requests/month; S3 holds ~1 MB; public ACM
 # certificates are free). DNS stays at the registrar: no Route 53.
 
@@ -11,6 +12,8 @@ locals {
   account_id    = data.aws_caller_identity.current.account_id
   partition     = data.aws_partition.current.partition
   custom_domain = var.domain_name != ""
+  api           = var.api_function_name != ""
+  api_host      = trimsuffix(trimprefix(var.api_function_url, "https://"), "/")
 }
 
 # --- Certificate ----------------------------------------------------------------------------------
@@ -152,7 +155,8 @@ resource "aws_cloudfront_response_headers_policy" "security" {
   security_headers_config {
     content_security_policy {
       # React sets a few inline style attributes (bar widths, colors), hence style-src-attr.
-      # connect-src: the page may only call cloud-api and Cognito's token endpoint (connect_src).
+      # connect-src: the page may only call its own origin (which serves the API under /api) and
+      # connect_src (Cognito's token endpoint).
       content_security_policy = join("; ", [
         "default-src 'self'",
         "script-src 'self'",
@@ -199,6 +203,50 @@ data "aws_cloudfront_cache_policy" "optimized" {
   name = "Managed-CachingOptimized"
 }
 
+# The API is never cached, and gets every viewer header (the token, the body hash) except Host,
+# which must name the Function URL for Lambda to accept the request.
+data "aws_cloudfront_cache_policy" "disabled" {
+  name = "Managed-CachingDisabled"
+}
+
+data "aws_cloudfront_origin_request_policy" "all_viewer_except_host" {
+  name = "Managed-AllViewerExceptHostHeader"
+}
+
+# CloudFront signs every request to the Function URL with SigV4. Lambda checks the signature, so
+# the URL answers nobody else. Signing replaces the Authorization header, which is why the
+# dashboard sends its Cognito token in X-Finance-Token.
+resource "aws_cloudfront_origin_access_control" "api" {
+  count                             = local.api ? 1 : 0
+  name                              = "${var.name}-api"
+  description                       = "CloudFront signs every request to cloud-api's Function URL"
+  origin_access_control_origin_type = "lambda"
+  signing_behavior                  = "always"
+  signing_protocol                  = "sigv4"
+}
+
+# A Function URL needs both statements: the URL invocation, and the function invocation it causes.
+# Both only for this distribution.
+resource "aws_lambda_permission" "api_url" {
+  count                  = local.api ? 1 : 0
+  statement_id           = "CloudFrontUrl"
+  action                 = "lambda:InvokeFunctionUrl"
+  function_name          = var.api_function_name
+  principal              = "cloudfront.amazonaws.com"
+  source_arn             = aws_cloudfront_distribution.site.arn
+  function_url_auth_type = "AWS_IAM"
+}
+
+resource "aws_lambda_permission" "api_invoke" {
+  count                    = local.api ? 1 : 0
+  statement_id             = "CloudFrontInvoke"
+  action                   = "lambda:InvokeFunction"
+  function_name            = var.api_function_name
+  principal                = "cloudfront.amazonaws.com"
+  source_arn               = aws_cloudfront_distribution.site.arn
+  invoked_via_function_url = true
+}
+
 resource "aws_cloudfront_distribution" "site" {
   enabled             = true
   comment             = "${var.name} dashboard"
@@ -211,6 +259,37 @@ resource "aws_cloudfront_distribution" "site" {
     origin_id                = "s3-site"
     domain_name              = aws_s3_bucket.site.bucket_regional_domain_name
     origin_access_control_id = aws_cloudfront_origin_access_control.site.id
+  }
+
+  dynamic "origin" {
+    for_each = local.api ? [1] : []
+    content {
+      origin_id                = "lambda-api"
+      domain_name              = local.api_host
+      origin_access_control_id = aws_cloudfront_origin_access_control.api[0].id
+      custom_origin_config {
+        http_port              = 80
+        https_port             = 443
+        origin_protocol_policy = "https-only"
+        origin_ssl_protocols   = ["TLSv1.2"]
+        origin_read_timeout    = 30 # the function's own timeout
+      }
+    }
+  }
+
+  dynamic "ordered_cache_behavior" {
+    for_each = local.api ? [1] : []
+    content {
+      path_pattern               = "/api/*"
+      target_origin_id           = "lambda-api"
+      viewer_protocol_policy     = "https-only"
+      allowed_methods            = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
+      cached_methods             = ["GET", "HEAD"]
+      compress                   = true
+      cache_policy_id            = data.aws_cloudfront_cache_policy.disabled.id
+      origin_request_policy_id   = data.aws_cloudfront_origin_request_policy.all_viewer_except_host.id
+      response_headers_policy_id = aws_cloudfront_response_headers_policy.security.id
+    }
   }
 
   default_cache_behavior {

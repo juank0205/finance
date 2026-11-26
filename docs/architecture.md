@@ -20,9 +20,10 @@ categories, net worth and fixing failed parses, happens in the cloud dashboard. 
    the user's rules, upserts by `dedup_key` into DynamoDB, updates monthly aggregates and archives raw
    JSON to S3. Failed raw events become review items. Poison messages land in a dead-letter queue.
 6. **AWS, dashboard.** CloudFront serves the React build from a private S3 bucket. The browser signs
-   in with Cognito (hosted page, PKCE) and calls `cloud-api` (Lambda) through its Function URL;
-   `cloud-api` checks the Cognito access token on every request. Until AWS enables CloudFront for the
-   account, the dashboard runs locally against the same API ([deploy-api.md](deploy-api.md)). The API
+   in with Cognito (hosted page, PKCE) and calls `cloud-api` (Lambda) at `/api` on the same domain:
+   CloudFront forwards it to the function's URL, signed with Origin Access Control, and the URL
+   accepts nothing else. `cloud-api` checks the Cognito access token on every request
+   ([deploy-api.md](deploy-api.md)). The API
    covers reading summaries and transactions, manual entries (`POST`/`PUT`/`DELETE /v1/transactions`), recurring rules
    (`/v1/recurring`), categories and net worth.
 7. **AWS, recurring.** `cloud-api` creates the occurrences of recurring rules (mortgage, phone bill,
